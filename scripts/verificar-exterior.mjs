@@ -8,7 +8,7 @@ import {buildPiramideSENATI} from '../src/piramide-senati.js';
 import {canCrossBuilding,insideFootprint,canOccupyPyramidInterior,canWalkExterior} from '../src/exterior-navigation.js';
 import {findExitInfo} from '../src/navigation.js';
 // Las pruebas de geometría no requieren GPU ni un navegador.
-const ctx=new Proxy({}, {get:(o,k)=>o[k]??(()=>{}),set:(o,k,v)=>(o[k]=v,true)});
+const ctx=new Proxy({measureText:()=>({width:780})}, {get:(o,k)=>o[k]??(()=>{}),set:(o,k,v)=>(o[k]=v,true)});
 globalThis.document={createElement:()=>({width:0,height:0,getContext:()=>ctx})};
 const current=buildPiramideSENATI(new THREE.Group());
 const campus=current.campus;
@@ -61,6 +61,7 @@ for (const [width, depth] of [[56, 38], [48, 32], [64, 44]]) {
   verifyRoundTrip(site,[road,landing,plaza]);
   verifyRoundTrip(site,[at(-35.75,27),at(-35.75,22.5)]);
   for(const lane of [-40.35,-37.65])verifyRoundTrip(site,[at(lane,-28.6),at(lane,-21.7)]);
+  verifyRoundTrip(site,[at(-35.8,-26.3),at(-25.5,-26.3)]);
   for(const lane of [31.75,34.25]){
     verifyRoundTrip(site,[at(lane,-25.2),at(lane,-20)]);
     verifyRoundTrip(site,[at(lane,25.2),at(lane,20)]);
@@ -102,6 +103,7 @@ for (const [width, depth] of [[56, 38], [48, 32], [64, 44]]) {
     verifyDeck(35.6,1.5+offset*1.25,.035);
     verifyDeck(38.5,1.5+offset*1.25,.035);
   }
+  for(const [x,z] of [[-33.5,-26.3],[-29.4,-26.2],[-32.3,-24.5]])verifyDeck(x,z,.02);
   // Las escaleras tienen peldaños de 14,4 cm y el movimiento de la cámara es continuo.
   for(const distance of [.25,.75,1.25,1.75,2.25,2.75,3.25]){
     for(const lane of [-40.35,-37.65])verifyDeck(lane,-26.8+distance,.17);

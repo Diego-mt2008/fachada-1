@@ -74,7 +74,7 @@ function concreteGrain() {
   return texture;
 }
 
-function signPanel(parent, {width, height, x, y, z, rotation=0, color, lines=[]}) {
+function signPanel(parent, {width, height, x, y, z, rotation=0, color, lines=[], compact=false}) {
   const canvas = document.createElement('canvas');
   canvas.width = 1600;
   canvas.height = Math.min(1600, Math.max(140, Math.round(1600*height/width)));
@@ -94,6 +94,17 @@ function signPanel(parent, {width, height, x, y, z, rotation=0, color, lines=[]}
     ctx.fillText('SENATI', w*.23, h*.16, w*.68);
     ctx.font = `600 ${h*.087}px Arial`;
     lines.forEach((line,i) => ctx.fillText(line,w*.095,h*(.35+.109*i),w*.83));
+  } else if (compact) {
+    const markSize = Math.min(h*.76,w*.20);
+    const gap = Math.min(h*.22,w*.06);
+    const label = 'SENATI';
+    ctx.font = `900 ${h*.87}px Arial`;
+    ctx.textAlign = 'left';
+    const textWidth = Math.min(ctx.measureText(label).width,w*.84-markSize-gap);
+    const left = (w-markSize-gap-textWidth)/2;
+    drawSenatiMark(ctx,left+markSize/2,h*.5,markSize);
+    ctx.fillStyle = '#fff';
+    ctx.fillText(label,left+markSize+gap,h*.5,textWidth);
   } else {
     drawSenatiMark(ctx, w*.25, h*.5, h*.70);
     ctx.fillStyle = 'white';
@@ -266,7 +277,9 @@ function buildPyramidExterior({shell,envelope,structure,roof,width,depth,levelHe
   for (let row=0;row<=3;row++) box(portal,glassWidth,.055,.10,0,doorHeight+transomHeight*row/3,.01,aluminum,false);
   const entrySignHeight = Math.min(.53,transomHeight*.29);
   box(portal,2*halfWidth,entrySignHeight,.075,0,doorHeight+entrySignHeight/2+.09,.058,darkBlue);
-  signPanel(portal,{width:2*halfWidth-.045,height:entrySignHeight-.03,x:0,y:doorHeight+entrySignHeight/2+.09,z:.099,color:signColor});
+  const entrySign=signPanel(portal,{width:2*halfWidth-.045,height:entrySignHeight-.03,x:0,
+    y:doorHeight+entrySignHeight/2+.09,z:.099,color:signColor,compact:true});
+  entrySign.name='Letrero SENATI de la entrada';
 
   const blueStart = glassEnd+.045;
   const blueSpan = recessEnd-blueStart;

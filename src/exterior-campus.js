@@ -188,8 +188,8 @@ export function buildCampusExterior(parent,{width=56,depth=38,signColor='#1251cb
   function bench(x,z,rot=0){const g=group('Banca de granito oscuro',X(x),0,Z(z));g.rotation.y=rot;box(g,3.3,.16,.72,0,.47,0,M.black,true);for(const xx of [-1.2,1.2])box(g,.24,.4,.62,xx,.2,0,M.stone);}
   function pole(x,z,double=false){const g=group(double?'Farola doble':'Poste rojo con luminaria',X(x),-1.15,Z(z));box(g,.30,.30,.30,0,.15,0,M.red);beam(g,[0,0,0],[0,6,0],.065,double?M.steel:M.red);for(const s of double?[-1,1]:[1]){beam(g,[0,5.5,0],[s*.95,6.2,0],.045);box(g,.43,.09,.22,s*1.0,6.2,0,M.white);}}
   function cone(x,z,y=-1.15){const g=group('Cono naranja',X(x),y,Z(z));box(g,.45,.045,.45,0,.025,0,M.orange,true);const o=new THREE.Mesh(new THREE.ConeGeometry(.19,.67,10),M.orange);o.position.y=.36;g.add(o);const r=new THREE.Mesh(new THREE.CylinderGeometry(.10,.13,.11,10),M.white);r.position.y=.40;g.add(r);}
-  function fence(name,x,z,len,rot=0,gate=false,y=0){
-    const g=group(name,X(x),y,Z(z));
+  function fence(name,x,z,len,rot=0,gate=false){
+    const g=group(name,X(x),0,Z(z));
     g.rotation.y=rot;
     len=Math.abs(Math.cos(rot))>.5?X(len):Z(len);
     for(let xx=-len/2;xx<=len/2;xx+=gate?.20:.35)box(g,.035,2.45,.035,xx,1.23,0,M.black);
@@ -299,9 +299,7 @@ export function buildCampusExterior(parent,{width=56,depth=38,signColor='#1251cb
     for(let y=.9;y<5.3;y+=.14)box(workshop,5.94,.019,.04,X(x),y,Z(5.44),M.black);
     board(workshop,'TALLER',2.6,.45,X(x),5.6,Z(5.45));
   }
-  for(const x of [-29.4,-5,26]){vehicle(x,-26.2,'#e5e7df',Math.PI/2,true);cone(x-3,-23.4);cone(x+3,-23.4);}
-  fence('Vallado junto al camión de prácticas',-33.5,-26.3,2.2,Math.PI/2,false,-1.15);
-  for(const x of [-33.2,-32.3,-31.4,-30.5])cone(x,-24.5);
+  for(const x of [-5,26]){vehicle(x,-26.2,'#e5e7df',Math.PI/2,true);cone(x-3,-23.4);cone(x+3,-23.4);}
   // Jardines que recorren ambos lados largos del edificio.
   planter(0,-20,53,3.5,0);
   planter(0,19,50,2.4,0,true);
