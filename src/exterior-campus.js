@@ -15,7 +15,42 @@ export const EXTERIOR_INVENTORY = [
 
 const mat=(color,roughness=.83,metalness=0)=>new THREE.MeshStandardMaterial({color,roughness,metalness});
 const clamp=THREE.MathUtils.clamp;
-export function buildCampusExterior(parent,{width=56,depth=38,signColor='#1251cb'}={}){
+
+export function isDefaultEntrancePerson(object, depth) {
+  const placement = {
+    'man-senati': {x: -1.8, frontOffset: 3.5},
+    'woman-senati': {x: 2, frontOffset: 3.1},
+  }[object.catalog_key];
+  if (!placement) return false;
+  return Math.abs(Number(object.pos_x) - placement.x) < .03
+    && Math.abs(Number(object.pos_y)) < .03
+    && Math.abs(Number(object.pos_z) - (depth / 2 + placement.frontOffset)) < .03;
+}
+
+function slopeBlock(width, run, low, high, bottomLow, bottomHigh) {
+  const x = width / 2;
+  const z = run / 2;
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute([
+    -x, bottomHigh, -z,  x, bottomHigh, -z,
+     x, bottomLow,   z, -x, bottomLow,   z,
+    -x, high,       -z,  x, high,       -z,
+     x, low,         z, -x, low,         z,
+  ], 3));
+  geometry.setIndex([
+    4, 7, 6, 4, 6, 5,
+    0, 1, 2, 0, 2, 3,
+    3, 2, 6, 3, 6, 7,
+    1, 0, 4, 1, 4, 5,
+    0, 3, 7, 0, 7, 4,
+    2, 1, 5, 2, 5, 6,
+  ]);
+  const block = geometry.toNonIndexed();
+  block.computeVertexNormals();
+  return block;
+}
+
+export function buildCampusExterior(parent,{width=56,depth=38,signColor='#1251cb',frontZ=depth/2-2.2}={}){
   const root=new THREE.Group();root.name='Exterior · recorrido del video 1–7';parent.add(root);
   // Escalar coordenadas de implantación sin deformar mobiliario ni personas.
   const sx=width/56,sz=depth/38,X=v=>v*sx,Z=v=>v*sz;
@@ -74,19 +109,37 @@ export function buildCampusExterior(parent,{width=56,depth=38,signColor='#1251cb
     // Local run points from road (+Z) up to landing (-Z).
     surfaces.push({x0:X(x)-w/2,x1:X(x)+w/2,z0:Z(z)-run/2,z1:Z(z)+run/2,stairs:true,x:X(x),z:Z(z),rot,w,run,low,high});
   }
-  function ramp(name,x,z,w,run,low,high,rot=0){
-    const g=group(name,X(x),0,Z(z));g.rotation.y=rot;
-    const slope=Math.atan2(high-low,run),length=Math.hypot(run,high-low);
-    const deck=box(g,w,.13,length,0,(low+high)/2-.065,0,M.concrete);deck.rotation.x=slope;
-    for(const xx of [-w/2,w/2]){
-      // Low solid blue outer parapet, white inner wall, stainless handrails.
-      const side=box(g,.16,.74,length,xx,(low+high)/2+.32,0,xx<0?M.blue:M.white);side.rotation.x=slope;
-      rail(g,[xx,low,run/2],[xx,high,-run/2]);
+  function ramp(name, x, z, w, run, low, high, rot=0, baseY) {
+    const g = group(name, X(x), 0, Z(z));
+    g.rotation.y = rot;
+    const deck = new THREE.Mesh(
+      slopeBlock(w, run, low, high, baseY ?? low - .13, baseY ?? high - .13),
+      M.concrete,
+    );
+    deck.name = 'Superficie de la rampa';
+    deck.receiveShadow = true;
+    g.add(deck);
+    for (const side of [-1, 1]) {
+      const xEdge = side * w / 2;
+      const wall = new THREE.Mesh(
+        slopeBlock(.16, run, low + .69, high + .69, low - .05, high - .05),
+        side < 0 ? M.blue : M.white,
+      );
+      wall.position.x = xEdge;
+      wall.castShadow = wall.receiveShadow = true;
+      g.add(wall);
+      rail(g, [xEdge, low, run / 2], [xEdge, high, -run / 2]);
+      wall.updateWorldMatrix(true, false);
+      const bounds = new THREE.Box3().setFromObject(wall);
+      collisions.push({x0: bounds.min.x, x1: bounds.max.x, z0: bounds.min.z, z1: bounds.max.z});
     }
-    for(let i=0;i<Math.ceil(run/.18);i++){const zz=run/2-i*.18,yy=low+(run/2-zz)/run*(high-low);box(g,w,.012,.018,0,yy+.012,zz,M.stone);}
-    surfaces.push({ramp:true,x:X(x),z:Z(z),rot,w,run,low,high});
-    // Thin parapet collision boxes in world coordinates, kept out of the walking lane.
-    for(const xx of [-w/2,w/2]){const px=X(x)+Math.cos(rot)*xx,pz=Z(z)-Math.sin(rot)*xx;collisions.push({x0:px-(Math.abs(Math.cos(rot))*.09+Math.abs(Math.sin(rot))*run/2),x1:px+(Math.abs(Math.cos(rot))*.09+Math.abs(Math.sin(rot))*run/2),z0:pz-(Math.abs(Math.sin(rot))*.09+Math.abs(Math.cos(rot))*run/2),z1:pz+(Math.abs(Math.sin(rot))*.09+Math.abs(Math.cos(rot))*run/2)});}
+    if (baseY === undefined) {
+      for (let offset = .18; offset < run; offset += .18) {
+        const height = low + (high - low) * offset / run;
+        box(g, w, .012, .018, 0, height + .012, run / 2 - offset, M.stone);
+      }
+    }
+    surfaces.push({ramp:true, x:X(x), z:Z(z), rot, w, run, low, high});
   }
   function tree(x,z,y=0,palm=false,flower=false){
     x=X(x);z=Z(z);const g=group(palm?'Palmera de tronco blanqueado':'Árbol de tronco blanqueado',x,y,z);
@@ -130,10 +183,30 @@ export function buildCampusExterior(parent,{width=56,depth=38,signColor='#1251cb
   for(const z of [22.4,31.6])box(root,X(87),.18,.16,0,-1.08,Z(z),M.yellow);
   for(const z of [-28.2,-22.2])box(root,X(89),.16,.14,0,-1.08,Z(z),M.yellow);
   const entry=group('Acceso 2 · muro azul y escalinata');
-  for(const x of [-21.5,-5.5])box(entry,X(10),1.25,.25,X(x),-.57,Z(22.5),M.blue,true);
-  stairs('Escalinata amarilla del inicio',-13.5,24,5.8,3.6,-1.15,0,0,true);
-  ramp('Rampa junto al acceso 2',-24,22,2.1,9,-1.15,0,Math.PI/2);
-  for(let i=0;i<8;i++)box(root,.45,.012,3.8,X(-13.5+i*.75-2.6),-1.135,Z(28),M.white);
+  const stairsX = -34.4;
+  box(entry, X(26), 1.25, .25, X(-13.5), -.57, Z(22.5), M.blue, true);
+  stairs('Escalinata amarilla del inicio', stairsX, 24.8, X(5.8), Z(3.6), -1.15, 0, 0, true);
+  for (let i = 0; i < 8; i++) {
+    box(root, X(.45), .012, Z(4.8), X(stairsX + i * .75 - 2.625), -1.135, Z(29), M.white);
+  }
+
+  // Rampa por el lado de la calle. La cota de la malla coincide con el recorrido.
+  const rampTopX = -29;
+  const rampBottomX = -18.8;
+  const rampZ = 24.35;
+  ramp('Rampa junto al acceso 2', (rampTopX + rampBottomX) / 2, rampZ,
+    Z(2.2), X(rampBottomX - rampTopX), -1.15, 0, Math.PI / 2, -1.27);
+  surface('Descanso inferior de la rampa frontal', rampBottomX + .9, rampZ, 1.8, 2.2, -1.15);
+  box(entry, X(2.3), 1.03, Z(3.25), X(rampTopX - 1.15), -.635, Z(23.825), M.concrete);
+  surface('Descanso superior de la rampa frontal', rampTopX - 1.15, 23.825, 2.3, 3.25, 0, 'brick');
+  box(entry, X(2.3), .69, .16, X(rampTopX - 1.15), .345, Z(25.45), M.blue, true);
+
+  // El seto continúa hasta ambos lados del paso peatonal a la puerta.
+  const entranceHalfGap = Math.min(22, 1.75 / sx);
+  const entryStartZ = frontZ / sz;
+  const entryEndZ = 19.15;
+  surface('Paso hacia la puerta principal', 0, (entryStartZ + entryEndZ) / 2,
+    entranceHalfGap * 2, entryEndZ - entryStartZ, 0, 'brick');
   // Zonas circulares a la izquierda del boceto: NO son árboles ni estanques.
   for(const z of [8,-8]){
     const g=group('Zona de seguridad circular',X(-39),.022,Z(z));
@@ -168,7 +241,10 @@ export function buildCampusExterior(parent,{width=56,depth=38,signColor='#1251cb
   for(const x of [-37,-5,31]){vehicle(x,-26.2,'#e5e7df',Math.PI/2,true);cone(x-3,-23.4);cone(x+3,-23.4);}
   fence('Vallado móvil naranja',-40,-25,4,Math.PI/2);for(const x of [-41,-40,-39,-38])cone(x,-25);
   // Jardines que recorren ambos lados largos del edificio.
-  planter(0,-20,53,3.5,0);planter(-14.5,19,21,2.4,0,true);planter(14.5,19,21,2.4,0,true);
+  planter(0,-20,53,3.5,0);
+  const frontPlanterWidth = 25 - entranceHalfGap;
+  const frontPlanterCenter = (25 + entranceHalfGap) / 2;
+  for (const side of [-1, 1]) planter(side * frontPlanterCenter, 19, frontPlanterWidth, 2.4, 0, true);
   for(const x of [-22,-12,0,12,23]){tree(x,-20,0,x===-22||x===12,x===0);if(x!==0)tree(x,19,0,x===12);}
   for(const x of [-19,-9,1,11,21])agave(x,-20,0);
   const fire=group('Gabinete rojo e hidrante',X(17),-1.15,Z(-22.15));box(fire,.7,1.45,.28,0,1.0,0,M.red,true);board(fire,'EXTINTOR\nINCENDIOS',.52,.7,0,1.25,.15,'#a72d26');for(const xx of [-.26,.26])box(fire,.05,.35,.06,xx,.18,0,M.red);
@@ -207,7 +283,7 @@ export function buildCampusExterior(parent,{width=56,depth=38,signColor='#1251cb
   const south=group('Pabellón colindante del inicio',0,-1.15,Z(46));box(south,48,6,8,-6,3,0,M.white);for(let i=0;i<11;i++)box(south,2.8,1.4,.06,-27+i*4,4.2,-4.04,M.glass);
 
   const bounds={left:X(-56),right:X(65),back:Z(-44),front:Z(43)};
-  const route=[{n:1,x:X(-12),z:Z(28),time:'00:00'},{n:2,x:X(-14),z:Z(21),time:'00:24'},{n:3,x:X(-39),z:Z(8),time:'00:51'},{n:4,x:X(-39),z:Z(-8),time:'01:12'},{n:5,x:X(0),z:Z(-25),time:'02:03'},{n:6,x:X(42),z:Z(-21),time:'03:18'},{n:7,x:X(33),z:Z(29),time:'04:54'}];
+  const route=[{n:1,x:X(stairsX),z:Z(29),time:'00:00'},{n:2,x:X(stairsX),z:Z(21),time:'00:24'},{n:3,x:X(-39),z:Z(8),time:'00:51'},{n:4,x:X(-39),z:Z(-8),time:'01:12'},{n:5,x:X(0),z:Z(-25),time:'02:03'},{n:6,x:X(42),z:Z(-21),time:'03:18'},{n:7,x:X(33),z:Z(29),time:'04:54'}];
   function localAt(s,x,z){const dx=x-s.x,dz=z-s.z;return {x:Math.cos(s.rot)*dx-Math.sin(s.rot)*dz,z:Math.sin(s.rot)*dx+Math.cos(s.rot)*dz};}
   function heightAt(x,z){
     // Ramps/stairs have precedence over adjacent flat decks.
@@ -224,7 +300,7 @@ export function buildCampusExterior(parent,{width=56,depth=38,signColor='#1251cb
   const batches=new Map();root.updateWorldMatrix(true,true);
   const inv=root.matrixWorld.clone().invert();
   root.traverse(o=>{
-    if(!o.isMesh||o.material.map||Array.isArray(o.material))return;
+    if(!o.isMesh||!o.geometry.parameters||o.material.map||Array.isArray(o.material))return;
     const key=JSON.stringify(o.geometry.parameters)+'/'+o.geometry.type+'/'+o.material.uuid;
     if(!batches.has(key))batches.set(key,[]);batches.get(key).push(o);
   });

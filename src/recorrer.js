@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
 import { createSceneModel } from './scene-models.js';
 import { buildPiramideSENATI } from './piramide-senati.js';
+import { isDefaultEntrancePerson } from './exterior-campus.js';
 import { insideFootprint, canCrossBuilding } from './exterior-navigation.js';
 import {EV52_ROOMS,ev52DeskPositions,DEFAULT_PYRAMID_WIDTH,DEFAULT_PYRAMID_DEPTH,DEFAULT_LEVEL_HEIGHT} from './ev52-layout.js';
 
@@ -175,6 +176,7 @@ function buildScene(scenario){
     totalFloors=kind==='piramide'?Math.min(6,Math.max(1,Number(app.floorCount)||6)):1;
   }
   if(kind==='piramide'){
+    items=items.filter(object=>!isDefaultEntrancePerson(object,D));
     building=buildPiramideSENATI(sceneRoot,{width:W,depth:D,levelHeight:H,levels:totalFloors,mode:'transparente',roofVisible:true,
       facadeColor:app.facadeColor||'#afa59b',signColor:app.signColor||'#1251cb'});
     frontZ=building.entry.frontZ;backZ=building.walkBounds.back;sideLeft=building.walkBounds.left;sideRight=building.walkBounds.right;

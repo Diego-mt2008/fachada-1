@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { buildPiramideSENATI } from './piramide-senati.js';
+import { isDefaultEntrancePerson } from './exterior-campus.js';
 import { insideFootprint, canCrossBuilding } from './exterior-navigation.js';
 import {EV52_ROOMS,ev52DeskPositions,pyramidScale,DEFAULT_PYRAMID_WIDTH,DEFAULT_PYRAMID_DEPTH,DEFAULT_LEVEL_HEIGHT} from './ev52-layout.js';
 import thumbManSenati from './assets/library/student-senati-m.webp';
@@ -1410,9 +1411,6 @@ $('pyramid-template').addEventListener('click',()=>{
   $('construction-floor').value='0';syncAppearanceInputs();makeRoom();
   // Seis pisos interiores con salones equipados (20 estaciones por nivel).
   populatePyramidInterior({silent:true});
-  // Personas y señalización en el acceso exterior, en posiciones referenciales.
-  addObject('man-senati',new THREE.Vector3(-1.8,0,room.depth/2+3.5),{silent:true});
-  addObject('woman-senati',new THREE.Vector3(2,0,room.depth/2+3.1),{silent:true});
   // La puerta de entrada ya está construida en la geometría de la fachada.
   addObject('safety-exit',new THREE.Vector3(0,0,room.depth/2-1.5),{silent:true});
   selectObject(null);renderLibrary();renderObjectList();applyFloorVisibility();markDirty();
@@ -1597,6 +1595,7 @@ $('load-scene').addEventListener('click',async()=>{
   $('scenario-name').value=data.name;currentScenarioId=Number(data.id);
   makeRoom();$('scene-template-tag').textContent=appearance.buildingPlan==='senati-pyramid'?'Pirámide SENATI · cargada':'Escenario guardado';placed.forEach(o=>objectGroup.remove(o));placed=[];selectObject(null);
   data.objects.forEach(o=>{
+   if(appearance.buildingPlan==='senati-pyramid'&&isDefaultEntrancePerson(o,room.depth))return;
    let config={};try{config=JSON.parse(o.config_json||'{}')||{};}catch(e){config={};}
    const obj=addObject(o.catalog_key,new THREE.Vector3(Number(o.pos_x),Number(o.pos_y),Number(o.pos_z)),{
     id:o.object_uuid,label:o.label,rotationY:Number(o.rot_y),scaleX:Number(o.scale_x),scaleY:Number(o.scale_y),scaleZ:Number(o.scale_z),skipAccessories:true,

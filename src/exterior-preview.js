@@ -9,7 +9,7 @@ try{
  scene.add(new THREE.HemisphereLight('#f5f6ef','#7a8175',2.5));const sun=new THREE.DirectionalLight('#fff5dc',2.3);sun.position.set(-40,70,20);sun.castShadow=true;sun.shadow.mapSize.set(2048,2048);Object.assign(sun.shadow.camera,{left:-85,right:85,top:75,bottom:-75});sun.shadow.bias=-.0003;scene.add(sun);
  const building=buildPiramideSENATI(scene,{mode:'exterior',roofVisible:true});
  const camera=new THREE.PerspectiveCamera(48,innerWidth/innerHeight,.1,500),orbit=new OrbitControls(camera,renderer.domElement);orbit.enableDamping=true;orbit.minDistance=4;orbit.maxDistance=240;orbit.maxPolarAngle=Math.PI*.49;
- const views=[[-12,3,34,-14,0,17],[-17,4,29,-18,0,16],[-49,6,14,-29,1,5],[-48,6,-14,-28,1,-9],[3,5,-29,3,1,-15],[49,5,-23,28,1,-12],[39,5,29,29,1,8]];
+ const views=[[-32,3.8,35,-30,0,22],[-28,4,31,-28,0,22],[-49,6,14,-29,1,5],[-48,6,-14,-28,1,-9],[3,5,-29,3,1,-15],[49,5,-23,28,1,-12],[39,5,29,29,1,8]];
  const descriptions=EXTERIOR_INVENTORY;
  function view(v){camera.position.set(...v.slice(0,3));orbit.target.set(...v.slice(3,6));orbit.update();}
  function overview(){view([109,88,115,0,1,0]);}overview();

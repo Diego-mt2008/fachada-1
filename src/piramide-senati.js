@@ -255,7 +255,7 @@ export function buildPiramideSENATI(parent,{width=56,depth=38,levelHeight=3.8,le
   for(const x of [mainLeft+1,mainLeft+7,mainRight-6,mainRight-1])box(shell,.14,1.2,.17,x,H+.65,front+.17,metal);
 
   // Entorno reconstruido según el video y la planta 1–7.
-  const campus=buildCampusExterior(environment,{width,depth,signColor});
+  const campus=buildCampusExterior(environment,{width,depth,signColor,frontZ:front});
   // Portal principal con dos hojas: la tecla E acciona este acceso en el recorrido.
   const doorRoot=new THREE.Group();doorRoot.name='Entrada principal interactiva';environment.add(doorRoot);
   const entryZ=front+.37,entryFrame=standard(0x4b626c,.38,.46);

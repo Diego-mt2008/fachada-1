@@ -3,7 +3,7 @@ import {readFileSync,writeFileSync,unlinkSync,existsSync} from 'node:fs';
 import {execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import * as THREE from 'three';
-import {buildCampusExterior} from '../src/exterior-campus.js';
+import {buildCampusExterior,isDefaultEntrancePerson} from '../src/exterior-campus.js';
 import {buildPiramideSENATI} from '../src/piramide-senati.js';
 import {canCrossBuilding,insideFootprint} from '../src/exterior-navigation.js';
 // Las pruebas de geometría no requieren GPU ni un navegador.
@@ -16,10 +16,51 @@ assert.equal(campus.route.length,7);
 assert(campus.inventory.length>100);
 assert.equal(campus.heightAt(0,21),0,'El acceso principal permanece en cota cero');
 assert.equal(campus.heightAt(0,-25),-1.15,'La calle entre edificios queda bajo la vereda');
-for(const x of [-13.5,33]){
-  const z=x===33?20.5:24;
-  assert(Math.abs(campus.heightAt(x,z)+.575)<.04,'Peldaños exteriores a media altura');
+assert(Math.abs(campus.heightAt(-34.4,24.8)+.575)<.04,'Escalera en el extremo izquierdo');
+assert(Math.abs(campus.heightAt(33,20.5)+.575)<.04,'Escalera del tramo 7');
+assert.equal(campus.heightAt(-13.5,24),-1.15,'La escalera anterior ya no ocupa la calle');
+
+function verifyWalk(campus, from, to) {
+  const steps = Math.ceil(Math.hypot(to.x - from.x, to.z - from.z) / .1);
+  let previous = from;
+  for (let step = 1; step <= steps; step++) {
+    const point = {
+      x: THREE.MathUtils.lerp(from.x, to.x, step / steps),
+      z: THREE.MathUtils.lerp(from.z, to.z, step / steps),
+    };
+    assert(campus.canWalk(previous, point, .20), `Paso exterior bloqueado en ${point.x.toFixed(2)}, ${point.z.toFixed(2)}`);
+    previous = point;
+  }
 }
+
+for (const [width, depth] of [[56, 38], [48, 32], [64, 44]]) {
+  const site = width === 56 ? campus : buildCampusExterior(new THREE.Group(), {width, depth});
+  const x = value => value * width / 56;
+  const z = value => value * depth / 38;
+  const road = {x:x(-17.9), z:z(24.35)};
+  const landing = {x:x(-30.2), z:z(24.35)};
+  const plaza = {x:x(-30.2), z:z(22.3)};
+  verifyWalk(site, road, landing);
+  verifyWalk(site, landing, road);
+  verifyWalk(site, landing, plaza);
+  verifyWalk(site, {x:x(-34.4),z:z(27)}, {x:x(-34.4),z:z(22.5)});
+  verifyWalk(site, {x:0,z:z(21)}, {x:0,z:depth/2-2.1});
+
+  // La altura de la cámara y el tablero visible deben coincidir a lo largo de la subida.
+  site.root.updateMatrixWorld(true);
+  const ray = new THREE.Raycaster();
+  for (let offset = 1; offset < 10; offset++) {
+    const point = {x:x(-18.8-offset), z:z(24.35)};
+    ray.set(new THREE.Vector3(point.x, 3, point.z), new THREE.Vector3(0, -1, 0));
+    const hit = ray.intersectObject(site.root, true)[0];
+    assert(hit && Math.abs(hit.point.y - site.heightAt(point.x, point.z)) < .005,
+      `La vereda tapa la rampa en ${point.x.toFixed(2)}, ${point.z.toFixed(2)}`);
+  }
+}
+assert(isDefaultEntrancePerson({catalog_key:'man-senati',pos_x:'-1.800',pos_y:'0.000',pos_z:'22.500'},38));
+assert(isDefaultEntrancePerson({catalog_key:'woman-senati',pos_x:2,pos_y:0,pos_z:22.1},38));
+assert(!isDefaultEntrancePerson({catalog_key:'woman-senati',pos_x:2,pos_y:0,pos_z:14},38));
+console.log('Acceso frontal OK: escalera a la izquierda, rampas transitables y tablero a la cota del recorrido.');
 const fp=current.footprint,entry=current.entry;
 assert(!insideFootprint(-40,-10,fp),'La plaza izquierda es exterior');
 assert(!insideFootprint(0,-25,fp),'El pasaje trasero es exterior');

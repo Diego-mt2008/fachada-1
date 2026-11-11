@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
 import { createSceneModel } from './scene-models.js';
 import { buildPiramideSENATI } from './piramide-senati.js';
+import { isDefaultEntrancePerson } from './exterior-campus.js';
 import {ev52DeskPositions,pyramidScale,DEFAULT_PYRAMID_WIDTH,DEFAULT_PYRAMID_DEPTH,DEFAULT_LEVEL_HEIGHT} from './ev52-layout.js';
 import { NavigationGrid, findExitInfo } from './navigation.js';
 
@@ -431,6 +432,7 @@ async function loadScenario(id){
   $('save-results').disabled=false;roomWidth=Number(loadedScenario.width_m)||20;roomDepth=Number(loadedScenario.depth_m)||12;roomHeight=Number(loadedScenario.height_m)||3.35;
   savedObjects=loadedScenario.objects||[];
   try{appearance={...appearance,...JSON.parse(loadedScenario.appearance_json||'{}')};}catch{}
+  if(appearance.buildingPlan==='senati-pyramid')savedObjects=savedObjects.filter(object=>!isDefaultEntrancePerson(object,roomDepth));
   applyClimate(appearance.climate||'day');
   roofVisible=typeof appearance.roofVisible==='boolean'?appearance.roofVisible:appearance.buildingPlan==='senati-pyramid';
   gridVisible=typeof appearance.gridVisible==='boolean'?appearance.gridVisible:false;
