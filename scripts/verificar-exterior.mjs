@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
-import {readFileSync,writeFileSync,unlinkSync,existsSync} from 'node:fs';
+import {writeFileSync,unlinkSync,existsSync} from 'node:fs';
 import {execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import * as THREE from 'three';
 import {isDefaultEntrancePerson,isOldFrontExitSign} from '../src/exterior-campus.js';
 import {buildPiramideSENATI} from '../src/piramide-senati.js';
-import {canCrossBuilding,insideFootprint,canOccupyPyramidInterior} from '../src/exterior-navigation.js';
+import {canCrossBuilding,insideFootprint,canOccupyPyramidInterior,canWalkExterior} from '../src/exterior-navigation.js';
 import {findExitInfo} from '../src/navigation.js';
 // Las pruebas de geometría no requieren GPU ni un navegador.
 const ctx=new Proxy({}, {get:(o,k)=>o[k]??(()=>{}),set:(o,k,v)=>(o[k]=v,true)});
@@ -18,8 +18,16 @@ assert(campus.inventory.length>100);
 assert.equal(campus.heightAt(0,21),0,'La vereda frontal permanece en cota cero');
 assert.equal(campus.heightAt(0,-25),-1.15,'La calle entre edificios queda bajo la vereda');
 assert(Math.abs(campus.heightAt(-34.4,24.8)+.575)<.04,'Escalera en el extremo izquierdo');
-assert(Math.abs(campus.heightAt(33,20.5)+.575)<.04,'Escalera del tramo 7');
+assert(Math.abs(campus.heightAt(33,22.4)+.575)<.04,'Escalera del tramo 7');
 assert.equal(campus.heightAt(-13.5,24),-1.15,'La escalera anterior ya no ocupa la calle');
+assert(!campus.inventory.includes('Contenedor gris de apoyo'),'Se retiró el contenedor delante del cartel');
+
+const sign=campus.root.getObjectByName('Cartel exterior de la Escuela de Tecnologías de la Información');
+campus.root.updateMatrixWorld(true);
+const observer=new THREE.Vector3(-48,1.65,-12.5);
+const signDirection=new THREE.Vector3(-46.8,2.1,-18.8).sub(observer).normalize();
+const signHit=new THREE.Raycaster(observer,signDirection).intersectObject(campus.root,true)[0];
+assert(sign&&signHit?.object.parent===sign,'Se ve el cartel desde la plaza');
 
 function verifyWalk(campus, from, to) {
   const steps = Math.ceil(Math.hypot(to.x - from.x, to.z - from.z) / .1);
@@ -34,18 +42,34 @@ function verifyWalk(campus, from, to) {
   }
 }
 
+function verifyRoundTrip(campus,points){
+  for(let i=1;i<points.length;i++){
+    verifyWalk(campus,points[i-1],points[i]);
+    verifyWalk(campus,points[i],points[i-1]);
+  }
+}
+
 for (const [width, depth] of [[56, 38], [48, 32], [64, 44]]) {
   const model = width === 56 ? current : buildPiramideSENATI(new THREE.Group(), {width, depth});
   const site = model.campus;
   const x = value => value * width / 56;
   const z = value => value * depth / 38;
+  const at=(a,b)=>({x:x(a),z:z(b)});
   const road = {x:x(-17.9), z:z(24.35)};
   const landing = {x:x(-30.2), z:z(24.35)};
   const plaza = {x:x(-30.2), z:z(22.3)};
-  verifyWalk(site, road, landing);
-  verifyWalk(site, landing, road);
-  verifyWalk(site, landing, plaza);
-  verifyWalk(site, {x:x(-34.4),z:z(27)}, {x:x(-34.4),z:z(22.5)});
+  verifyRoundTrip(site,[road,landing,plaza]);
+  verifyRoundTrip(site,[at(-35.75,27),at(-35.75,22.5)]);
+  for(const lane of [-40.35,-37.65])verifyRoundTrip(site,[at(lane,-28.6),at(lane,-21.7)]);
+  for(const lane of [31.75,34.25]){
+    verifyRoundTrip(site,[at(lane,-25.2),at(lane,-20)]);
+    verifyRoundTrip(site,[at(lane,25.2),at(lane,20)]);
+  }
+  verifyRoundTrip(site,[at(38.5,16.3),at(38.5,.6),at(35.6,.6),at(35.6,16.3)]);
+  verifyRoundTrip(site,[at(-47.5,-12),at(-47.5,-17.8)]);
+  verifyRoundTrip(site,[...site.routePath,site.routePath[0]]);
+  assert(site.routePath.every(p=>!insideFootprint(p.x,p.z,model.footprint)),'La guía discurre por el exterior');
+  assert(!site.canWalk(at(-39.45,-24.9),at(-38.55,-24.9),.20),'La baranda central frena un paso rápido');
   const {entry}=model;
   const exit=findExitInfo([],width,depth,entry);
   assert.deepEqual(exit.center,{x:entry.x,z:entry.z},'La salida predeterminada usa la puerta de la fachada');
@@ -59,16 +83,32 @@ for (const [width, depth] of [[56, 38], [48, 32], [64, 44]]) {
     'La puerta lateral abierta admite el paso');
   assert(canOccupyPyramidInterior(inner.x,inner.z,{walkBounds:model.walkBounds,entry,doorOpen:true}),
     'El paso desemboca en la planta baja existente');
+  assert(canCrossBuilding(inner,outer,{footprint:model.footprint,entry,doorOpen:true})
+    &&canWalkExterior(inner,outer,model,.20),'Se puede salir a la plaza por el umbral a la misma altura');
 
   // La altura de la cámara y el tablero visible deben coincidir a lo largo de la subida.
   site.root.updateMatrixWorld(true);
   const ray = new THREE.Raycaster();
-  for (let offset = 1; offset < 10; offset++) {
-    const point = {x:x(-18.8-offset), z:z(24.35)};
-    ray.set(new THREE.Vector3(point.x, 3, point.z), new THREE.Vector3(0, -1, 0));
+  const down=new THREE.Vector3(0,-1,0);
+  function verifyDeck(a,b,tolerance){
+    const point=at(a,b);
+    ray.set(new THREE.Vector3(point.x,3,point.z),down);
     const hit = ray.intersectObject(site.root, true)[0];
-    assert(hit && Math.abs(hit.point.y - site.heightAt(point.x, point.z)) < .005,
-      `La vereda tapa la rampa en ${point.x.toFixed(2)}, ${point.z.toFixed(2)}`);
+    assert(hit && Math.abs(hit.point.y - site.heightAt(point.x, point.z)) < tolerance,
+      `El pavimento o un objeto tapa el paso en ${point.x.toFixed(2)}, ${point.z.toFixed(2)}`);
+  }
+  for(let offset=1;offset<10;offset++){
+    verifyDeck(-18.8-offset,24.35,.005);
+    verifyDeck(35.6,1.5+offset*1.25,.035);
+    verifyDeck(38.5,1.5+offset*1.25,.035);
+  }
+  // Las escaleras tienen peldaños de 14,4 cm y el movimiento de la cámara es continuo.
+  for(const distance of [.25,.75,1.25,1.75,2.25,2.75,3.25]){
+    for(const lane of [-40.35,-37.65])verifyDeck(lane,-26.8+distance,.17);
+    for(const lane of [31.75,34.25]){
+      verifyDeck(lane,-24.3+distance,.17);
+      verifyDeck(lane,24.3-distance,.17);
+    }
   }
 }
 assert(isDefaultEntrancePerson({catalog_key:'man-senati',pos_x:'-1.800',pos_y:'0.000',pos_z:'22.500'},38));
@@ -76,7 +116,7 @@ assert(isDefaultEntrancePerson({catalog_key:'woman-senati',pos_x:2,pos_y:0,pos_z
 assert(!isDefaultEntrancePerson({catalog_key:'woman-senati',pos_x:2,pos_y:0,pos_z:14},38));
 assert(isOldFrontExitSign({catalog_key:'safety-exit',pos_x:0,pos_y:0,pos_z:17.5},38));
 assert(!isOldFrontExitSign({catalog_key:'safety-exit',pos_x:0,pos_y:0,pos_z:15.65},38));
-console.log('Entorno OK: escalera izquierda y rampa a la cota del recorrido.');
+console.log('Entorno OK: cartel visible, escaleras despejadas y rampas transitables de ida y vuelta.');
 const fp=current.footprint,entry=current.entry;
 assert(!insideFootprint(-40,-10,fp),'La plaza izquierda es exterior');
 assert(!insideFootprint(0,-25,fp),'El pasaje trasero es exterior');

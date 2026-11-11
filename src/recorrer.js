@@ -3,7 +3,7 @@ import { PointerLockControls } from 'three/addons/controls/PointerLockControls.j
 import { createSceneModel } from './scene-models.js';
 import { buildPiramideSENATI } from './piramide-senati.js';
 import { isDefaultEntrancePerson, isOldFrontExitSign } from './exterior-campus.js';
-import { insideFootprint, canCrossBuilding, canOccupyPyramidInterior } from './exterior-navigation.js';
+import { insideFootprint, canCrossBuilding, canOccupyPyramidInterior, canWalkExterior } from './exterior-navigation.js';
 import {EV52_ROOMS,ev52DeskPositions,DEFAULT_PYRAMID_WIDTH,DEFAULT_PYRAMID_DEPTH,DEFAULT_LEVEL_HEIGHT} from './ev52-layout.js';
 
 const $=id=>document.getElementById(id);
@@ -148,7 +148,7 @@ function makeFloorOptions(){
   $('floor-select').value=String(currentFloor);
 }
 function resetCamera(){
-  velocity.set(0,0,0);stairRoute=null;seatedAt=null;closePC();
+  velocity.set(0,0,0);keys.clear();stairRoute=null;resetSeating();
   if(kind==='piramide'){
     const {x,z,yaw}=building.entry.approach;
     camera.position.set(x,building.campus.heightAt(x,z)+1.68,z);
@@ -160,7 +160,7 @@ function resetCamera(){
   $('status').textContent='Acércate a la entrada y pulsa E para abrir la puerta.';
 }
 function setFloor(index){
-  seatedAt=null;closePC();
+  resetSeating();
   currentFloor=THREE.MathUtils.clamp(index,0,totalFloors-1);
   if(items.length) renderSavedFurniture(); else renderDemoFurniture();
   $('floor-select').value=String(currentFloor);
@@ -248,11 +248,10 @@ function sitAtPC(){
 }
 function standFromPC(){
   if(!seatedAt)return;
-  const s=seatedAt;seatedAt=null;closePC();
+  const s=seatedAt;resetSeating();
   camera.position.set(s.x+1.38,s.y+1.68,s.z+.84);
   if(!canMove(camera.position.x,camera.position.z))camera.position.set(0,s.y+1.68,0);
   velocity.set(0,0,0);
-  $('sit-button').textContent='Sentarse (E)';$('pc-button').disabled=true;
   $('status').textContent='Te levantaste. Puedes seguir recorriendo el salón.';
 }
 function openPC(){
@@ -263,6 +262,11 @@ function openPC(){
   if(walk.isLocked)walk.unlock();
 }
 function closePC(){pcOpen=false;const panel=$('pc-panel');if(panel)panel.hidden=true;}
+function resetSeating(){
+  seatedAt=null;closePC();
+  $('sit-button').textContent='Sentarse (E)';
+  $('pc-button').disabled=true;
+}
 function nearElevator(maxDistance=2.50){
   if(kind!=='piramide'||!building?.elevator)return false;
   const el=building.elevator;
@@ -322,7 +326,7 @@ function canMove(x,z){
     if(!outside&&!canOccupyPyramidInterior(x,z,{walkBounds:building.walkBounds,entry:building.entry,
       doorOpen,floor:currentFloor,radius:r}))return false;
     if(outside){
-      if(!building.campus.canWalk({x:camera.position.x,z:camera.position.z},{x,z},r))return false;
+      if(!canWalkExterior(camera.position,{x,z},building,r))return false;
     }
   }else{
     const inside=camera.position.z<frontZ;
@@ -400,7 +404,7 @@ function tick(){
   renderer.render(world,camera);
 }
 walk.addEventListener('lock',()=>{started=true;document.body.classList.add('walk-active');$('crosshair').classList.add('visible');$('status').textContent='WASD: caminar · Shift: correr · E: puerta o asiento · F: usar PC · Tab: escenarios · Esc: mouse';});
-walk.addEventListener('unlock',()=>{document.body.classList.remove('walk-active');$('crosshair').classList.remove('visible');$('walk-tooltip').classList.remove('visible');keys.clear();velocity.set(0,0,0);});
+walk.addEventListener('unlock',()=>{document.body.classList.remove('walk-active');$('crosshair').classList.remove('visible');$('walk-tooltip').classList.remove('visible');currentAction='';keys.clear();velocity.set(0,0,0);});
 $('start-walk').addEventListener('click',()=>walk.lock());
 $('reset-walk').addEventListener('click',()=>{resetCamera();setFloor(0);});
 $('door-button').addEventListener('click',interaction);
@@ -408,7 +412,7 @@ $('sit-button').addEventListener('click',()=>seatedAt?standFromPC():sitAtPC());
 $('pc-button').addEventListener('click',openPC);
 $('pc-close').addEventListener('click',closePC);
 $('scenario-select').addEventListener('change',e=>{if(walk.isLocked)walk.unlock();loadScene(e.target.value);});
-$('floor-select').addEventListener('change',e=>{if(walk.isLocked)walk.unlock();setFloor(Number(e.target.value));camera.position.set(0,currentFloor*H+1.68,frontZ-1.8);camera.rotation.set(0,0,0,'YXZ');velocity.set(0,0,0);});
+$('floor-select').addEventListener('change',e=>{if(walk.isLocked)walk.unlock();setFloor(Number(e.target.value));camera.position.set(0,currentFloor*H+1.68,frontZ-1.8);camera.rotation.set(0,0,0,'YXZ');velocity.set(0,0,0);stairRoute=null;});
 $('speed').addEventListener('input',e=>$('speed-value').textContent=e.target.value);
 $('sensitivity').addEventListener('input',e=>{walk.pointerSpeed=Number(e.target.value);$('sensitivity-value').textContent=e.target.value;});
 $('fov').addEventListener('input',e=>{camera.fov=Number(e.target.value);camera.updateProjectionMatrix();$('fov-value').textContent=e.target.value;});

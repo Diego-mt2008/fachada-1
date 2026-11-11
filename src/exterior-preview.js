@@ -19,7 +19,17 @@ try{
    view([approach.x-7,2.8,z+.8,x,2.0,z+2.7]);
    document.getElementById('caption').textContent='Entrada principal de vidrio en la plaza lateral, entre las zonas de seguridad.';
  };
- const route=new THREE.Group();route.visible=false;scene.add(route);const points=building.campus.route.map(p=>new THREE.Vector3(p.x,building.campus.heightAt(p.x,p.z)+.15,p.z));
+ const route=new THREE.Group();route.visible=false;scene.add(route);
+ const {routePath,heightAt}=building.campus;
+ const points=routePath.flatMap((start,i)=>{
+   const end=routePath[(i+1)%routePath.length];
+   const steps=Math.ceil(Math.hypot(end.x-start.x,end.z-start.z)/.35);
+   return Array.from({length:steps},(_,step)=>{
+     const x=THREE.MathUtils.lerp(start.x,end.x,step/steps);
+     const z=THREE.MathUtils.lerp(start.z,end.z,step/steps);
+     return new THREE.Vector3(x,heightAt(x,z)+.17,z);
+   });
+ });
  const line=new THREE.Line(new THREE.BufferGeometry().setFromPoints([...points,points[0]]),new THREE.LineBasicMaterial({color:'#e09b35'}));route.add(line);
  building.campus.route.forEach((p,i)=>{
    const b=document.createElement('button');b.textContent=p.n;b.title=`Punto ${p.n} · ${p.time}`;b.onclick=()=>{view(views[i]);const item=descriptions.find(d=>d[0].includes(String(p.n)))||descriptions.at(-1);document.getElementById('caption').textContent=`${p.time} · ${item[2]}.`;};document.getElementById('points').append(b);

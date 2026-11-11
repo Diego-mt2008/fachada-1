@@ -61,14 +61,19 @@ export function buildCampusExterior(parent,{width=56,depth=38,signColor='#1251cb
   const root=new THREE.Group();root.name='Exterior · recorrido del video 1–7';parent.add(root);
   // Escalar coordenadas de implantación sin deformar mobiliario ni personas.
   const sx=width/56,sz=depth/38,X=v=>v*sx,Z=v=>v*sz;
-  const collisions=[...buildingObstacles],surfaces=[],inventory=[];
+  const collisions=[...buildingObstacles],surfaces=[],slopes=[],inventory=[];
   const M={blue:mat(signColor),white:mat('#ecece6'),concrete:mat('#aaa79e'),stone:mat('#6c706e'),yellow:mat('#d6ad59'),
     steel:mat('#adb7b9',.29,.75),black:mat('#232e34'),red:mat('#a53b34'),green:mat('#78a349'),grass:mat('#648c40'),
     foliage:mat('#34633d'),leaf:mat('#487a44'),trunk:mat('#75634d'),glass:mat('#253d42',.26,.3),orange:mat('#ed783a'),bag:mat('#40ac69'),violet:mat('#a29dc4'),lilac:mat('#c0badb')};
   const boxGeo=new THREE.BoxGeometry(1,1,1),leafGeo=new THREE.IcosahedronGeometry(1,1);
+  function addCollider(object) {
+    object.updateWorldMatrix(true,true);
+    const bounds = new THREE.Box3().setFromObject(object);
+    collisions.push({x0:bounds.min.x,x1:bounds.max.x,z0:bounds.min.z,z1:bounds.max.z});
+  }
   function box(g,w,h,d,x,y,z,m,solid=false){
     const o=new THREE.Mesh(boxGeo,m);o.scale.set(w,h,d);o.position.set(x,y,z);o.castShadow=h>.15;o.receiveShadow=true;g.add(o);
-    if(solid){o.updateWorldMatrix(true,false);const b=new THREE.Box3().setFromObject(o);collisions.push({x0:b.min.x,x1:b.max.x,z0:b.min.z,z1:b.max.z});}return o;
+    if(solid)addCollider(o);return o;
   }
   function group(name,x=0,y=0,z=0){const g=new THREE.Group();g.name=name;g.position.set(x,y,z);root.add(g);inventory.push(name);return g;}
   function beam(g,a,b,r=.035,m=M.steel){
@@ -89,7 +94,7 @@ export function buildCampusExterior(parent,{width=56,depth=38,signColor='#1251cb
   }
   const textures={brick:texture('brick'),concrete:texture('concrete'),grass:texture('grass'),tile:texture('tile')};
   const surfaceMaterials=new Map();
-  function surface(name,x,z,w,d,y=0,kind='concrete'){
+  function surface(name,x,z,w,d,y=0,kind='concrete',baseY=y-.12){
     x=X(x);z=Z(z);w=X(w);d=Z(d);
     const key=`${kind}:${w}:${d}`;
     if(!surfaceMaterials.has(key)){
@@ -100,7 +105,8 @@ export function buildCampusExterior(parent,{width=56,depth=38,signColor='#1251cb
       surfaceMaterials.set(key,new THREE.MeshStandardMaterial({map:tx,roughness:.97}));
     }
     // Separación subcentimétrica para evitar parpadeo en cruces de pavimentos.
-    const o=box(root,w,.12,d,x,y-.06+(surfaces.length+1)*.00015,z,surfaceMaterials.get(key));o.name=name;
+    const thickness=y-baseY;
+    const o=box(root,w,thickness,d,x,y-thickness/2+(surfaces.length+1)*.00015,z,surfaceMaterials.get(key));o.name=name;
     surfaces.push({x0:x-w/2,x1:x+w/2,z0:z-d/2,z1:z+d/2,y});return o;
   }
   function board(g,text,w,h,x,y,z,color='#1251cb',rotation=0){
@@ -111,7 +117,15 @@ export function buildCampusExterior(parent,{width=56,depth=38,signColor='#1251cb
     const tx=new THREE.CanvasTexture(c);tx.colorSpace=THREE.SRGBColorSpace;
     const o=new THREE.Mesh(new THREE.PlaneGeometry(w,h),new THREE.MeshBasicMaterial({map:tx,side:THREE.DoubleSide}));o.position.set(x,y,z);o.rotation.y=rotation;g.add(o);return o;
   }
-  function rail(g,a,b){beam(g,[a[0],a[1]+1.0,a[2]],[b[0],b[1]+1.0,b[2]]);const n=Math.ceil(Math.hypot(b[0]-a[0],b[2]-a[2])/1.8);for(let i=0;i<=n;i++){let k=i/n;const p=a.map((v,j)=>v+(b[j]-v)*k);beam(g,p,[p[0],p[1]+1,p[2]],.027);}}
+  function rail(g,a,b,solid=false){
+    const handrail=beam(g,[a[0],a[1]+1,a[2]],[b[0],b[1]+1,b[2]]);
+    if(solid)addCollider(handrail);
+    const segments=Math.ceil(Math.hypot(b[0]-a[0],b[2]-a[2])/1.8);
+    for(let i=0;i<=segments;i++){
+      const point=a.map((value,j)=>value+(b[j]-value)*i/segments);
+      beam(g,point,[point[0],point[1]+1,point[2]],.027);
+    }
+  }
   function stairs(name,x,z,w,run,low,high,rot=0,yellow=false){
     const g=group(name,X(x),0,Z(z));g.rotation.y=rot;
     const steps=8;for(let i=0;i<steps;i++){
@@ -119,9 +133,9 @@ export function buildCampusExterior(parent,{width=56,depth=38,signColor='#1251cb
       box(g,w,h,run/steps,0,low+h/2,run/2-(i+.5)*run/steps,yellow?M.yellow:M.stone);
       box(g,w,.022,.055,0,low+h+.012,run/2-i*run/steps-.04,M.steel);
     }
-    for(const xx of [-w/2+.16,0,w/2-.16])rail(g,[xx,low,run/2],[xx,high,-run/2]);
+    for(const xx of [-w/2+.16,0,w/2-.16])rail(g,[xx,low,run/2],[xx,high,-run/2],true);
     // Local run points from road (+Z) up to landing (-Z).
-    surfaces.push({x0:X(x)-w/2,x1:X(x)+w/2,z0:Z(z)-run/2,z1:Z(z)+run/2,stairs:true,x:X(x),z:Z(z),rot,w,run,low,high});
+    slopes.push({x:X(x),z:Z(z),rot,w,run,low,high});
   }
   function ramp(name, x, z, w, run, low, high, rot=0, baseY) {
     const g = group(name, X(x), 0, Z(z));
@@ -143,9 +157,7 @@ export function buildCampusExterior(parent,{width=56,depth=38,signColor='#1251cb
       wall.castShadow = wall.receiveShadow = true;
       g.add(wall);
       rail(g, [xEdge, low, run / 2], [xEdge, high, -run / 2]);
-      wall.updateWorldMatrix(true, false);
-      const bounds = new THREE.Box3().setFromObject(wall);
-      collisions.push({x0: bounds.min.x, x1: bounds.max.x, z0: bounds.min.z, z1: bounds.max.z});
+      addCollider(wall);
     }
     if (baseY === undefined) {
       for (let offset = .18; offset < run; offset += .18) {
@@ -153,7 +165,7 @@ export function buildCampusExterior(parent,{width=56,depth=38,signColor='#1251cb
         box(g, w, .012, .018, 0, height + .012, run / 2 - offset, M.stone);
       }
     }
-    surfaces.push({ramp:true, x:X(x), z:Z(z), rot, w, run, low, high});
+    slopes.push({x:X(x),z:Z(z),rot,w,run,low,high});
   }
   function tree(x,z,y=0,palm=false,flower=false,height=palm?6.3:4.1){
     x=X(x);z=Z(z);const g=group(palm?'Palmera de tronco blanqueado':'Árbol de tronco blanqueado',x,y,z);
@@ -175,14 +187,24 @@ export function buildCampusExterior(parent,{width=56,depth=38,signColor='#1251cb
   function agave(x,z,y=0){const g=group('Agave',X(x),y,Z(z));for(let i=0;i<9;i++){const a=i*2.4;const o=new THREE.Mesh(new THREE.ConeGeometry(.11,.85,4),M.leaf);o.position.set(Math.cos(a)*.22,.32,Math.sin(a)*.22);o.rotation.set(Math.cos(a)*.5,0,Math.sin(a)*.5);g.add(o);}}
   function bench(x,z,rot=0){const g=group('Banca de granito oscuro',X(x),0,Z(z));g.rotation.y=rot;box(g,3.3,.16,.72,0,.47,0,M.black,true);for(const xx of [-1.2,1.2])box(g,.24,.4,.62,xx,.2,0,M.stone);}
   function pole(x,z,double=false){const g=group(double?'Farola doble':'Poste rojo con luminaria',X(x),-1.15,Z(z));box(g,.30,.30,.30,0,.15,0,M.red);beam(g,[0,0,0],[0,6,0],.065,double?M.steel:M.red);for(const s of double?[-1,1]:[1]){beam(g,[0,5.5,0],[s*.95,6.2,0],.045);box(g,.43,.09,.22,s*1.0,6.2,0,M.white);}}
-  function cone(x,z,y=-1.15){const g=group('Cono naranja',X(x),y,Z(z));box(g,.45,.045,.45,0,.025,0,M.orange);const o=new THREE.Mesh(new THREE.ConeGeometry(.19,.67,10),M.orange);o.position.y=.36;g.add(o);const r=new THREE.Mesh(new THREE.CylinderGeometry(.10,.13,.11,10),M.white);r.position.y=.40;g.add(r);}
-  function fence(name,x,z,len,rot=0,gate=false){const g=group(name,X(x),0,Z(z));g.rotation.y=rot;for(let xx=-len/2;xx<=len/2;xx+=gate?.20:.35)box(g,.035,2.45,.035,xx,1.23,0,M.black);for(const yy of [.2,1.2,2.4])box(g,len,.055,.065,0,yy,0,M.black);for(const xx of [-len/2,len/2])box(g,.12,2.65,.12,xx,1.32,0,M.black);if(gate)rail(g,[-len/2,0,0],[len/2,0,0]);}
+  function cone(x,z,y=-1.15){const g=group('Cono naranja',X(x),y,Z(z));box(g,.45,.045,.45,0,.025,0,M.orange,true);const o=new THREE.Mesh(new THREE.ConeGeometry(.19,.67,10),M.orange);o.position.y=.36;g.add(o);const r=new THREE.Mesh(new THREE.CylinderGeometry(.10,.13,.11,10),M.white);r.position.y=.40;g.add(r);}
+  function fence(name,x,z,len,rot=0,gate=false,y=0){
+    const g=group(name,X(x),y,Z(z));
+    g.rotation.y=rot;
+    len=Math.abs(Math.cos(rot))>.5?X(len):Z(len);
+    for(let xx=-len/2;xx<=len/2;xx+=gate?.20:.35)box(g,.035,2.45,.035,xx,1.23,0,M.black);
+    for(const yy of [.2,1.2,2.4])box(g,len,.055,.065,0,yy,0,M.black);
+    for(const xx of [-len/2,len/2])box(g,.12,2.65,.12,xx,1.32,0,M.black);
+    if(gate)rail(g,[-len/2,0,0],[len/2,0,0]);
+    addCollider(g);
+  }
   function vehicle(x,z,color='#d9dfe0',rot=0,truck=false,van=false){
     const g=group(truck?'Camión de prácticas':van?'Furgón estacionado':'Auto estacionado',X(x),-1.15,Z(z));g.rotation.y=rot;const paint=mat(color,.4,.25);
-    box(g,1.85,.57,truck?5.8:4.1,0,.68,0,paint,true);box(g,1.67,van?1.55:.82,truck?1.7:van?3.4:2.25,0,van?1.7:1.28,truck?1.85:-.1,paint);
+    box(g,1.85,.57,truck?5.8:4.1,0,.68,0,paint);box(g,1.67,van?1.55:.82,truck?1.7:van?3.4:2.25,0,van?1.7:1.28,truck?1.85:-.1,paint);
     box(g,1.52,.52,.035,0,van?1.95:1.48,truck?2.72:van?1.72:1.04,M.glass);
     for(const s of [-1,1]){box(g,.03,.49,truck?1.38:1.9,s*.85,1.45,truck?1.85:-.1,M.glass);for(const zz of [-1.36,1.36]){const wheel=new THREE.Mesh(new THREE.CylinderGeometry(.35,.35,.18,12),M.black);wheel.rotation.z=Math.PI/2;wheel.position.set(s*.91,.36,zz);g.add(wheel);}box(g,.39,.15,.04,s*.55,.75,truck?2.93:2.07,M.white);}
     if(truck){box(g,1.88,.16,4.0,0,1.02,-.9,M.stone);for(const zz of [-2.7,-.9,.8])box(g,1.85,.43,.07,0,1.3,zz,M.white);}
+    addCollider(g);
   }
   // Viales a una cota inferior; todas las plataformas junto al edificio llegan a Y=0.
   surface('Suelo general',4,0,144,112,-1.30);
@@ -190,10 +212,11 @@ export function buildCampusExterior(parent,{width=56,depth=38,signColor='#1251cb
   surface('Pasaje entre talleres y pirámide',1,-25.2,92,6,-1.15);
   surface('Estacionamiento del extremo 6',49,0,27,69,-1.15);
   const plazaRight=entrance ? entrance.westX/sx : -29;
-  surface('Plaza de las zonas de seguridad 3 y 4',(plazaRight-49)/2,0,plazaRight+49,46,0);
+  const plazaEdgeZ=-23;
+  surface('Plaza de las zonas de seguridad 3 y 4',(plazaRight-49)/2,0,plazaRight+49,46,0,'concrete',-1.30);
+  surface('Acceso de la cafetería',-52,3,6,12,0,'concrete',-1.30);
   surface('Vereda frontal adoquinada',0,21,59,4,0,'brick');
-  surface('Plataforma del extremo 6–7',32,0,10,41,0,'brick');
-  surface('Vereda junto a talleres',0,-30.1,88,2.2,-.96);
+  surface('Vereda junto a talleres',0,-29.85,88,3.3,-.96,'concrete',-1.30);
   surface('Jardín exterior del tramo 7',24,34,21,7,-1.0,'grass');
   surface('Vereda exterior del tramo 7',27,29.2,24,2.6,-.96,'brick');
   // Bordillos y franjas amarillas de la calle.
@@ -258,11 +281,13 @@ export function buildCampusExterior(parent,{width=56,depth=38,signColor='#1251cb
   }
   // Caseta técnica y cafetería observadas frente a la plaza.
   const cafe=group('Cafetería y caseta técnica',X(-52),0,Z(3));box(cafe,5,3.5,10,0,1.75,0,M.white,true);box(cafe,5.3,.24,10.4,0,3.6,0,M.blue);box(cafe,.04,2.2,5.8,2.51,1.6,0,M.glass);board(cafe,'SENATI · CAFETERÍA',7,1.05,2.55,3,0,'#174b96',Math.PI/2);
-  const tech=group('Caseta con puertas grises y avisos',X(-28.7),0,Z(16.2));box(tech,4.3,2.8,3.1,0,1.4,0,M.white);box(tech,4.5,.16,3.3,0,2.9,0,M.white);for(const zz of [-.8,.8]){box(tech,.04,2.25,1.3,-2.17,1.16,zz,M.stone);board(tech,'⚠\nRIESGO ELÉCTRICO',.9,.55,-2.20,1.9,zz,'#9b7625',-Math.PI/2);}
-  const container=group('Contenedor gris de apoyo',X(-49),0,Z(-15));box(container,5.5,2.8,2.7,0,1.4,0,M.stone,true);for(let x=-2.65;x<2.7;x+=.25)box(container,.035,2.7,.04,x,1.4,1.37,M.concrete);
-  board(root,'SENATI\nESCUELA DE TECNOLOGÍAS\nDE LA INFORMACIÓN',5,5.7,X(-46),3.4,Z(-18.8),'#168cbd');
-  stairs('Escalones hacia el pasaje de talleres',-39,-24,5.5,3.8,-1.15,0,Math.PI);
-  fence('Reja junto a los contenedores',-47,-20.5,10);
+  const tech=group('Caseta con puertas grises y avisos',X(-28.7),0,Z(16.2));box(tech,4.3,2.8,3.1,0,1.4,0,M.white,true);box(tech,4.5,.16,3.3,0,2.9,0,M.white);for(const zz of [-.8,.8]){box(tech,.04,2.25,1.3,-2.17,1.16,zz,M.stone);board(tech,'⚠\nRIESGO ELÉCTRICO',.9,.55,-2.20,1.9,zz,'#9b7625',-Math.PI/2);}
+  const schoolSign=group('Cartel exterior de la Escuela de Tecnologías de la Información',X(-46),0,Z(-18.8));
+  board(schoolSign,'SENATI\nESCUELA DE TECNOLOGÍAS\nDE LA INFORMACIÓN',5,5.7,0,3.4,0,'#168cbd');
+  for(const x of [-1.75,1.75])box(schoolSign,.16,.60,.17,x,.30,0,M.steel,true);
+  const workshopStairRun=3.8;
+  stairs('Escalones hacia el pasaje de talleres',-39,plazaEdgeZ-workshopStairRun/2,X(5.5),Z(workshopStairRun),-1.15,0,Math.PI);
+  fence('Reja de la plaza junto al cartel',-45.5,-20.5,7);
   fence('Portón abierto de paso al taller',-42,-19.9,4,Math.PI/2,true);
   fence('Portón abierto de paso al taller',-36,-20,4,Math.PI/2,true);
   // Pabellón longitudinal: acristalamiento oscuro, cuatro portones enrollables azules.
@@ -274,8 +299,9 @@ export function buildCampusExterior(parent,{width=56,depth=38,signColor='#1251cb
     for(let y=.9;y<5.3;y+=.14)box(workshop,5.94,.019,.04,X(x),y,Z(5.44),M.black);
     board(workshop,'TALLER',2.6,.45,X(x),5.6,Z(5.45));
   }
-  for(const x of [-37,-5,31]){vehicle(x,-26.2,'#e5e7df',Math.PI/2,true);cone(x-3,-23.4);cone(x+3,-23.4);}
-  fence('Vallado móvil naranja',-40,-25,4,Math.PI/2);for(const x of [-41,-40,-39,-38])cone(x,-25);
+  for(const x of [-29.4,-5,26]){vehicle(x,-26.2,'#e5e7df',Math.PI/2,true);cone(x-3,-23.4);cone(x+3,-23.4);}
+  fence('Vallado junto al camión de prácticas',-33.5,-26.3,2.2,Math.PI/2,false,-1.15);
+  for(const x of [-33.2,-32.3,-31.4,-30.5])cone(x,-24.5);
   // Jardines que recorren ambos lados largos del edificio.
   planter(0,-20,53,3.5,0);
   planter(0,19,50,2.4,0,true);
@@ -290,15 +316,31 @@ export function buildCampusExterior(parent,{width=56,depth=38,signColor='#1251cb
   for(let i=0;i<10;i++){const z=-27+i*5.8;box(root,7,.012,.08,X(49),-1.135,Z(z),M.white);vehicle(49,z+2.7,['#d9dfdf','#333b42','#9b9b91','#e8e9e0'][i%4],-Math.PI/2,false,i===4);}
   for(let i=0;i<7;i++)box(root,5,.012,.45,X(39),-1.13,Z(-17+i*.8),M.white);
   for(let i=0;i<12;i++){const stripe=box(root,4,.012,.08,X(38),-1.13,Z(3+i*1.2),M.yellow);stripe.rotation.y=-.6;}
-  for(const z of [-8,10]){const g=group('Zona de seguridad del estacionamiento',X(42),-1.13,Z(z));const o=new THREE.Mesh(new THREE.CircleGeometry(3.3,48),mat('#83b3a2'));o.rotation.x=-Math.PI/2;g.add(o);const text=board(g,'ZONA DE\nSEGURIDAD',4.5,1.8,0,.01,0,'#83b3a2');text.rotation.x=-Math.PI/2;}
+  for(const [x,z] of [[42,-8],[43.25,10]]){
+    const zone=group('Zona de seguridad del estacionamiento',X(x),-1.13,Z(z));
+    const disk=new THREE.Mesh(new THREE.CircleGeometry(3.2,48),mat('#83b3a2'));
+    disk.rotation.x=-Math.PI/2;disk.scale.set(sx,sz,1);zone.add(disk);
+    const text=board(zone,'ZONA DE\nSEGURIDAD',X(4.5),Z(1.8),0,.01,0,'#83b3a2');
+    text.rotation.x=-Math.PI/2;
+  }
   // Accesos del extremo 6–7: escaleras y rampa de dos tramos con descanso conectado.
-  stairs('Escalinata gris del extremo 6',33,-20,5.3,3.8,-1.15,0,Math.PI);
-  stairs('Escalinata gris del extremo 7',33,20.5,5.3,3.8,-1.15,0);
-  ramp('Rampa accesible · tramo inferior',38.5,8,2.3,13,-1.15,-.58,0);
-  ramp('Rampa accesible · tramo superior',35.6,8,2.3,13,-.58,0,Math.PI);
-  surface('Descanso de retorno de rampa',37.05,1.0,5.3,2,-.58,'brick');
-  surface('Descanso superior junto al edificio',31.4,15.1,6.2,3.0,0,'brick');
-  surface('Descanso inferior de rampa',38.5,16.0,3.0,3.0,-1.15,'brick');
+  const platformLeft=27,platformRight=37,platformEnd=20.5;
+  const upperRampX=35.6,lowerRampX=38.5,rampWidth=2.3;
+  const rampTurnZ=1.5,rampEntryZ=14.5,rampRun=rampEntryZ-rampTurnZ;
+  const rampCenterZ=(rampTurnZ+rampEntryZ)/2;
+  const returnLeft=upperRampX-rampWidth/2-.05;
+  const outerDeckX=(returnLeft+platformRight)/2,outerDeckWidth=platformRight-returnLeft;
+  // El hueco en la plataforma deja libre la rampa y su descanso a media altura.
+  surface('Plataforma del extremo 6–7',(platformLeft+returnLeft)/2,0,returnLeft-platformLeft,2*platformEnd,0,'brick',-1.30);
+  surface('Descanso superior del extremo 6',outerDeckX,-platformEnd/2,outerDeckWidth,platformEnd,0,'brick',-1.30);
+  surface('Descanso superior del extremo 7',outerDeckX,(rampEntryZ+platformEnd)/2,outerDeckWidth,platformEnd-rampEntryZ,0,'brick',-1.30);
+  const sideStairRun=3.8,sideStairZ=platformEnd+sideStairRun/2;
+  stairs('Escalinata gris del extremo 6',33,-sideStairZ,X(5.3),Z(sideStairRun),-1.15,0,Math.PI);
+  stairs('Escalinata gris del extremo 7',33,sideStairZ,X(5.3),Z(sideStairRun),-1.15,0);
+  ramp('Rampa accesible · tramo inferior',lowerRampX,rampCenterZ,X(rampWidth),Z(rampRun),-1.15,-.58,0);
+  ramp('Rampa accesible · tramo superior',upperRampX,rampCenterZ,X(rampWidth),Z(rampRun),-.58,0,Math.PI);
+  surface('Descanso de retorno de rampa',(upperRampX+lowerRampX)/2,rampTurnZ/2,lowerRampX-upperRampX+rampWidth+.10,rampTurnZ,-.58,'brick',-1.30);
+  surface('Descanso inferior de rampa',lowerRampX,rampEntryZ+1.5,3.0,3.0,-1.15,'brick');
   planter(30,-11,6,10,0);planter(30,8,6,7,0);tree(30,-11,0,true);tree(30,8,0,true);tree(30,-5,0,false,true);
   for(const z of [-7,1,12])bench(29,z,Math.PI/2);
   const monument=group('Monolito rojizo con pedestal azul',X(30),0,Z(-1));box(monument,.9,.45,.9,0,.22,0,M.blue,true);box(monument,.65,2.05,.65,0,1.47,0,mat('#bc7259'));for(let i=0;i<4;i++){const m=new THREE.Mesh(new THREE.TorusGeometry(.17,.025,5,12),M.trunk);m.position.set(0,.82+i*.43,.333);monument.add(m);}
@@ -309,7 +351,7 @@ export function buildCampusExterior(parent,{width=56,depth=38,signColor='#1251cb
   for(let i=0;i<13;i++){const bag=new THREE.Mesh(leafGeo,M.bag);bag.scale.set(.35+(i%3)*.05,.32,.30);bag.position.set(X(15+i*1.38),-.65,Z(32.4+(i%2)*2.7));gardening.add(bag);const tie=new THREE.Mesh(new THREE.ConeGeometry(.10,.15,5),M.bag);tie.position.copy(bag.position).add(new THREE.Vector3(0,.35,0));gardening.add(tie);}
   const cart=group('Carretilla de jardinería',X(17),-1.05,Z(29));box(cart,1.3,.15,.85,0,.35,0,M.trunk);for(const xx of [-.5,.5]){beam(cart,[xx,.1,0],[xx,1.0,-.7],.028,M.black);const wheel=new THREE.Mesh(new THREE.CylinderGeometry(.16,.16,.08,10),M.black);wheel.rotation.z=Math.PI/2;wheel.position.set(xx,.16,.3);cart.add(wheel);}for(let i=0;i<3;i++)box(cart,.25,.4,.25,-.4+i*.38,.64,0,[M.red,M.yellow,M.green][i]);
   // Equipamiento menor en ambos frentes.
-  for(const x of [-25,-7,15,31]){pole(x,23);pole(x,-22.2);}pole(42,-20,true);pole(-44,22,true);
+  for(const x of [-25,-7,15,36.6]){pole(x,23);pole(x,-22.2);}pole(42,-20,true);pole(-44,22,true);
   for(const z of [-14,12]){const g=group('Papelera exterior',X(-32),0,Z(z));box(g,.48,.82,.48,0,.41,0,M.black);}
   const sign=group('Señal de salida y punto de reunión',X(37),-1.15,Z(-25));beam(sign,[0,0,0],[0,3,0],.045);board(sign,'SALIDA →',1.8,.65,0,2.6,0,'#28734f');
   // Edificios colindantes vistos al fondo, sin añadir interiores ajenos al encargo.
@@ -317,18 +359,41 @@ export function buildCampusExterior(parent,{width=56,depth=38,signColor='#1251cb
   const south=group('Pabellón colindante del inicio',0,-1.15,Z(46));box(south,48,6,8,-6,3,0,M.white);for(let i=0;i<11;i++)box(south,2.8,1.4,.06,-27+i*4,4.2,-4.04,M.glass);
 
   const bounds={left:X(-56),right:X(65),back:Z(-44),front:Z(43)};
-  const route=[{n:1,x:X(stairsX),z:Z(29),time:'00:00'},{n:2,x:X(stairsX),z:Z(21),time:'00:24'},{n:3,x:X(-39),z:Z(8),time:'00:51'},{n:4,x:X(-39),z:Z(-8),time:'01:12'},{n:5,x:X(0),z:Z(-25),time:'02:03'},{n:6,x:X(42),z:Z(-21),time:'03:18'},{n:7,x:X(33),z:Z(29),time:'04:54'}];
+  const route=[{n:1,x:X(stairsX-1.35),z:Z(29),time:'00:00'},{n:2,x:X(stairsX-1.35),z:Z(21),time:'00:24'},{n:3,x:X(-39),z:Z(8),time:'00:51'},{n:4,x:X(-39),z:Z(-8),time:'01:12'},{n:5,x:X(0),z:Z(-25),time:'02:03'},{n:6,x:X(42),z:Z(-21),time:'03:18'},{n:7,x:X(33),z:Z(29),time:'04:54'}];
+  const waypointsAfter={
+    4:[[-37.65,-21.7],[-37.65,-29.8],[0,-29.8]],
+    5:[[0,-24.6],[39,-24.6]],
+    6:[[43,-21],[43,29]],
+    7:[[33,27.3],[stairsX-1.35,27.3]],
+  };
+  const routePath=route.flatMap(point=>[point,...(waypointsAfter[point.n]||[]).map(([x,z])=>({x:X(x),z:Z(z)}))]);
   function localAt(s,x,z){const dx=x-s.x,dz=z-s.z;return {x:Math.cos(s.rot)*dx-Math.sin(s.rot)*dz,z:Math.sin(s.rot)*dx+Math.cos(s.rot)*dz};}
   function heightAt(x,z){
-    // Ramps/stairs have precedence over adjacent flat decks.
-    for(const s of surfaces.filter(s=>s.ramp||s.stairs)){const p=localAt(s,x,z);if(Math.abs(p.x)<=s.w/2+.025&&Math.abs(p.z)<=s.run/2+.025)return s.low+(s.high-s.low)*clamp((s.run/2-p.z)/s.run,0,1);}
-    let y=-1.15;for(const s of surfaces){if(s.ramp||s.stairs)continue;if(x>=s.x0&&x<=s.x1&&z>=s.z0&&z<=s.z1)y=Math.max(y,s.y);}return y;
+    for(const s of slopes){
+      const point=localAt(s,x,z);
+      if(Math.abs(point.x)<=s.w/2+.0001&&Math.abs(point.z)<=s.run/2+.0001)
+        return s.low+(s.high-s.low)*clamp((s.run/2-point.z)/s.run,0,1);
+    }
+    let height=-1.30;
+    for(const s of surfaces){
+      if(x>=s.x0-.0001&&x<=s.x1+.0001&&z>=s.z0-.0001&&z<=s.z1+.0001)height=Math.max(height,s.y);
+    }
+    return height;
   }
   function canWalk(from,to,radius=.18){
-    const {x,z}=to;
-    if(x<bounds.left+radius||x>bounds.right-radius||z<bounds.back+radius||z>bounds.front-radius)return false;
-    if(collisions.some(b=>x>b.x0-radius&&x<b.x1+radius&&z>b.z0-radius&&z<b.z1+radius))return false;
-    return Math.abs(heightAt(x,z)-heightAt(from.x,from.z))<=.30;
+    if(to.x<bounds.left+radius||to.x>bounds.right-radius||to.z<bounds.back+radius||to.z>bounds.front-radius)return false;
+    const dx=to.x-from.x,dz=to.z-from.z;
+    // A velocidad de carrera, revisar el trayecto también entre fotogramas.
+    const steps=Math.max(1,Math.ceil(Math.hypot(dx,dz)/.12));
+    let lastHeight=heightAt(from.x,from.z);
+    for(let step=1;step<=steps;step++){
+      const x=from.x+dx*step/steps,z=from.z+dz*step/steps;
+      if(collisions.some(b=>x>b.x0-radius&&x<b.x1+radius&&z>b.z0-radius&&z<b.z1+radius))return false;
+      const height=heightAt(x,z);
+      if(Math.abs(height-lastHeight)>.30)return false;
+      lastHeight=height;
+    }
+    return true;
   }
   // Instancias para el mobiliario estático repetido: evita miles de draw calls.
   const batches=new Map();root.updateWorldMatrix(true,true);
@@ -345,5 +410,5 @@ export function buildCampusExterior(parent,{width=56,depth=38,signColor='#1251cb
     meshes.forEach((o,i)=>{batch.setMatrixAt(i,inv.clone().multiply(o.matrixWorld));o.removeFromParent();});
     batch.instanceMatrix.needsUpdate=true;root.add(batch);
   }
-  return {root,bounds,route,collisions,heightAt,canWalk,inventory};
+  return {root,bounds,route,routePath,collisions,heightAt,canWalk,inventory};
 }

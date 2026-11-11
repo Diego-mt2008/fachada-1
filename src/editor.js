@@ -4,7 +4,7 @@ import { PointerLockControls } from 'three/addons/controls/PointerLockControls.j
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { buildPiramideSENATI } from './piramide-senati.js';
 import { isDefaultEntrancePerson, isOldFrontExitSign } from './exterior-campus.js';
-import { insideFootprint, canCrossBuilding, canOccupyPyramidInterior } from './exterior-navigation.js';
+import { insideFootprint, canCrossBuilding, canOccupyPyramidInterior, canWalkExterior } from './exterior-navigation.js';
 import {EV52_ROOMS,ev52DeskPositions,pyramidScale,DEFAULT_PYRAMID_WIDTH,DEFAULT_PYRAMID_DEPTH,DEFAULT_LEVEL_HEIGHT} from './ev52-layout.js';
 import thumbManSenati from './assets/library/student-senati-m.webp';
 import thumbWomanSenati from './assets/library/student-senati-f.webp';
@@ -1431,7 +1431,10 @@ $('blank-template').addEventListener('click',()=>$('new-scene').click());
 let savedOrbitView=null;
 let walkVisibilitySnapshot=null;
 function enterWalkMode(){
-  if(walkMode&&walkControls.isLocked){walkControls.unlock();return;}
+  if(walkMode){
+    if(walkControls.isLocked)walkControls.unlock();
+    return;
+  }
   savedOrbitView={position:camera.position.clone(),target:controls.target.clone()};
   walkMode=true;controls.enabled=false;walkFloorIndex=0;walkOnStairs=false;walkStairRoute=null;walkSmooth.set(0,0);walkDoorOpen=false;
   pyramidBuilding?.setDoorOpen?.(false);
@@ -1463,7 +1466,12 @@ walkControls.addEventListener('lock',()=>{
   $('walk-exit-button')?.classList.remove('hidden');
   $('tool-walk').innerHTML='<span>↩</span> Salir';
 });
-walkControls.addEventListener('unlock',()=>{
+function clearWalkInput(){
+  Object.keys(walkKeys).forEach(k=>walkKeys[k]=false);
+  walkSmooth.set(0,0);
+}
+function leaveWalkMode(){
+  if(!walkMode)return;
   document.body.classList.remove('walk-mode');
   $('walk-exit-button')?.classList.add('hidden');
   walkMode=false;controls.enabled=true;$('tool-walk').innerHTML='<span>♙</span> Recorrer';$('tool-walk').classList.remove('active');
@@ -1472,7 +1480,14 @@ walkControls.addEventListener('unlock',()=>{
   $('viewport-help').classList.remove('hidden');$('viewport-status').textContent='Modo construcción';
   if(savedOrbitView){camera.position.copy(savedOrbitView.position);controls.target.copy(savedOrbitView.target);controls.update();savedOrbitView=null;}
   if(walkVisibilitySnapshot){placed.forEach((o,i)=>o.visible=walkVisibilitySnapshot[i]??true);walkVisibilitySnapshot=null;}
-  Object.keys(walkKeys).forEach(k=>walkKeys[k]=false);walkSmooth.set(0,0);walkStairRoute=null;
+  clearWalkInput();walkStairRoute=null;
+}
+walkControls.addEventListener('unlock',leaveWalkMode);
+window.addEventListener('blur',clearWalkInput);
+document.addEventListener('pointerlockerror',()=>{
+  if(!walkMode||walkControls.isLocked)return;
+  leaveWalkMode();
+  showToast('Haz clic en Recorrer para volver a activar el ratón.');
 });
 $('walk-exit-button')?.addEventListener('click',()=>walkControls.unlock());
 $('tool-walk').addEventListener('click',enterWalkMode);
@@ -1721,13 +1736,13 @@ renderer.setAnimationLoop(()=>{
    walkControls.moveRight(walkSmooth.x*dt);
    const outdoor=appearance.buildingPlan==='senati-pyramid';
    if(outdoor){
-     const fp=pyramidBuilding.footprint,campus=pyramidBuilding.campus;
+     const fp=pyramidBuilding.footprint;
      const inside=insideFootprint(camera.position.x,camera.position.z,fp);
      const stair=pyramidBuilding?.stairs;
      const crossing=!canCrossBuilding(previousWalkPosition,camera.position,{footprint:fp,entry:pyramidBuilding.entry,doorOpen:walkDoorOpen,floor:walkFloorIndex,radius:.20});
      const wall=inside
        ?!canOccupyPyramidInterior(camera.position.x,camera.position.z,{walkBounds:pyramidBuilding.walkBounds,entry:pyramidBuilding.entry,doorOpen:walkDoorOpen,floor:walkFloorIndex,radius:.24})
-       :!campus.canWalk(previousWalkPosition,camera.position,.20);
+       :!canWalkExterior(previousWalkPosition,camera.position,pyramidBuilding,.20);
      if(crossing||wall){camera.position.x=previousWalkPosition.x;camera.position.z=previousWalkPosition.z;walkSmooth.multiplyScalar(.35);}
      if(stair){
        let blockedByWall=(pyramidBuilding.floorWallBoxes?.[walkFloorIndex]||[]).some(w=>
