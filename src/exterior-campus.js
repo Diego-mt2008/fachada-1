@@ -6,7 +6,7 @@ import * as THREE from 'three';
 
 export const EXTERIOR_INVENTORY = [
   ['1–2', '00:00–00:32', 'Calle, cruce peatonal, muro azul, escalinata amarilla, pasamanos y rampas'],
-  ['3–4', '00:33–01:32', 'Dos círculos de seguridad, bancas, jardineras de piedra, agaves, carteles, cafetería, contenedores y rejas'],
+  ['3–4', '00:33–01:32', 'Plaza de las zonas de seguridad, entrada principal de vidrio, bancas, jardineras y carteles'],
   ['5', '01:33–02:57', 'Taller acristalado con persianas azules, camiones, conos, canaleta, césped, palmeras y gabinete contra incendios'],
   ['6', '03:00–03:41', 'Estacionamiento, autos y furgón, cruces, franjas amarillas y veredas adoquinadas'],
   ['6–7', '03:42–04:47', 'Escaleras grises, rampas en retorno, barandas, bancas, monolito rojizo y jardines'],
@@ -25,6 +25,13 @@ export function isDefaultEntrancePerson(object, depth) {
   return Math.abs(Number(object.pos_x) - placement.x) < .03
     && Math.abs(Number(object.pos_y)) < .03
     && Math.abs(Number(object.pos_z) - (depth / 2 + placement.frontOffset)) < .03;
+}
+
+export function isOldFrontExitSign(object, depth) {
+  return object.catalog_key==='safety-exit'
+    && Math.abs(Number(object.pos_x))<.03
+    && Math.abs(Number(object.pos_y))<.03
+    && Math.abs(Number(object.pos_z)-(depth/2-1.5))<.03;
 }
 
 function slopeBlock(width, run, low, high, bottomLow, bottomHigh) {
@@ -50,11 +57,11 @@ function slopeBlock(width, run, low, high, bottomLow, bottomHigh) {
   return block;
 }
 
-export function buildCampusExterior(parent,{width=56,depth=38,signColor='#1251cb',frontZ=depth/2-2.2}={}){
+export function buildCampusExterior(parent,{width=56,depth=38,signColor='#1251cb',entrance,buildingObstacles=[]}={}){
   const root=new THREE.Group();root.name='Exterior · recorrido del video 1–7';parent.add(root);
   // Escalar coordenadas de implantación sin deformar mobiliario ni personas.
   const sx=width/56,sz=depth/38,X=v=>v*sx,Z=v=>v*sz;
-  const collisions=[],surfaces=[],inventory=[];
+  const collisions=[...buildingObstacles],surfaces=[],inventory=[];
   const M={blue:mat(signColor),white:mat('#ecece6'),concrete:mat('#aaa79e'),stone:mat('#6c706e'),yellow:mat('#d6ad59'),
     steel:mat('#adb7b9',.29,.75),black:mat('#232e34'),red:mat('#a53b34'),green:mat('#78a349'),grass:mat('#648c40'),
     foliage:mat('#34633d'),leaf:mat('#487a44'),trunk:mat('#75634d'),glass:mat('#253d42',.26,.3),orange:mat('#ed783a'),bag:mat('#40ac69'),violet:mat('#a29dc4'),lilac:mat('#c0badb')};
@@ -70,21 +77,28 @@ export function buildCampusExterior(parent,{width=56,depth=38,signColor='#1251cb
   }
   function texture(kind){
     const c=document.createElement('canvas');c.width=c.height=256;const t=c.getContext('2d');
-    t.fillStyle=kind==='brick'?'#8d9290':kind==='grass'?'#6f9245':'#b5b4ad';t.fillRect(0,0,256,256);
+    t.fillStyle=kind==='brick'?'#8d9290':kind==='grass'?'#6f9245':kind==='tile'?'#bcbeb9':'#b5b4ad';t.fillRect(0,0,256,256);
     // Semilla fija: el mismo entorno en cada carga.
     let seed=78;const rand=()=>{seed=(seed*1664525+1013904223)>>>0;return seed/4294967296;};
     for(let i=0;i<2400;i++){const a=rand();t.fillStyle=`rgba(${a>.5?'255,255,230':'40,48,30'},.09)`;t.fillRect(rand()*256,rand()*256,1+rand()*3,1+rand()*3);}
     t.strokeStyle=kind==='brick'?'#616a68':'#92948e';t.lineWidth=1;
     if(kind==='brick'){for(let y=-32;y<288;y+=32)for(let x=-64;x<288;x+=64){t.strokeRect(x+(y%64?32:0),y,64,32);}}
+    else if(kind==='tile'){for(let i=0;i<4;i++)t.strokeRect(i*64,0,64,256);}
     else if(kind!=='grass'){t.strokeRect(0,0,256,256);}
     const tx=new THREE.CanvasTexture(c);tx.colorSpace=THREE.SRGBColorSpace;tx.wrapS=tx.wrapT=THREE.RepeatWrapping;return tx;
   }
-  const textures={brick:texture('brick'),concrete:texture('concrete'),grass:texture('grass')};
+  const textures={brick:texture('brick'),concrete:texture('concrete'),grass:texture('grass'),tile:texture('tile')};
   const surfaceMaterials=new Map();
   function surface(name,x,z,w,d,y=0,kind='concrete'){
     x=X(x);z=Z(z);w=X(w);d=Z(d);
     const key=`${kind}:${w}:${d}`;
-    if(!surfaceMaterials.has(key)){const tx=textures[kind].clone();tx.repeat.set(w/(kind==='brick'?2:4),d/(kind==='brick'?2:4));surfaceMaterials.set(key,new THREE.MeshStandardMaterial({map:tx,roughness:.97}));}
+    if(!surfaceMaterials.has(key)){
+      const tx=textures[kind].clone();
+      const tileWidth=kind==='tile'?4:kind==='brick'?2:4;
+      const tileDepth=kind==='tile'?1.18:tileWidth;
+      tx.repeat.set(w/tileWidth,d/tileDepth);
+      surfaceMaterials.set(key,new THREE.MeshStandardMaterial({map:tx,roughness:.97}));
+    }
     // Separación subcentimétrica para evitar parpadeo en cruces de pavimentos.
     const o=box(root,w,.12,d,x,y-.06+(surfaces.length+1)*.00015,z,surfaceMaterials.get(key));o.name=name;
     surfaces.push({x0:x-w/2,x1:x+w/2,z0:z-d/2,z1:z+d/2,y});return o;
@@ -141,10 +155,12 @@ export function buildCampusExterior(parent,{width=56,depth=38,signColor='#1251cb
     }
     surfaces.push({ramp:true, x:X(x), z:Z(z), rot, w, run, low, high});
   }
-  function tree(x,z,y=0,palm=false,flower=false){
+  function tree(x,z,y=0,palm=false,flower=false,height=palm?6.3:4.1){
     x=X(x);z=Z(z);const g=group(palm?'Palmera de tronco blanqueado':'Árbol de tronco blanqueado',x,y,z);
-    const h=palm?6.3:4.1;beam(g,[0,0,0],[.13,h,0],palm?.21:.15,M.trunk);beam(g,[0,0,0],[.025,1.1,0],palm?.22:.16,M.white);
-    if(palm){for(let i=0;i<9;i++){let a=i*Math.PI*2/9;const leaf=new THREE.Mesh(leafGeo,M.leaf);leaf.scale.set(.46,.18,2.1);leaf.position.set(Math.sin(a)*1.2,h-.25,Math.cos(a)*1.2);leaf.rotation.set(-.25,a,0);g.add(leaf);}}
+    const h=height, scale=palm?h/6.3:1;
+    beam(g,[0,0,0],[.13*scale,h,0],palm?.21*scale:.15,M.trunk);
+    beam(g,[0,0,0],[.025*scale,1.1*scale,0],palm?.22*scale:.16,M.white);
+    if(palm){for(let i=0;i<9;i++){let a=i*Math.PI*2/9;const leaf=new THREE.Mesh(leafGeo,M.leaf);leaf.scale.set(.46*scale,.18*scale,2.1*scale);leaf.position.set(Math.sin(a)*1.2*scale,h-.25*scale,Math.cos(a)*1.2*scale);leaf.rotation.set(-.25,a,0);g.add(leaf);}}
     else{for(let i=0;i<5;i++){let a=i*2.4;beam(g,[.06,2.1,0],[Math.cos(a),h-.5,Math.sin(a)],.055,M.trunk);const o=new THREE.Mesh(leafGeo,i%2?M.foliage:M.leaf);o.scale.set(1.45,.9,1.35);o.position.set(Math.cos(a)*.65,h-.2+(i%2)*.35,Math.sin(a)*.65);o.castShadow=true;g.add(o);if(flower){const flowers=new THREE.Mesh(leafGeo,mat('#bc684c'));flowers.scale.set(.9,.18,.7);flowers.position.copy(o.position).add(new THREE.Vector3(0,.8,0));g.add(flowers);}}}
     collisions.push({x0:x-.25,x1:x+.25,z0:z-.25,z1:z+.25});return g;
   }
@@ -173,7 +189,8 @@ export function buildCampusExterior(parent,{width=56,depth=38,signColor='#1251cb
   surface('Calle del inicio y retorno',0,27,91,9,-1.15);
   surface('Pasaje entre talleres y pirámide',1,-25.2,92,6,-1.15);
   surface('Estacionamiento del extremo 6',49,0,27,69,-1.15);
-  surface('Plaza de las zonas de seguridad 3 y 4',-39,0,20,46,0);
+  const plazaRight=entrance ? entrance.westX/sx : -29;
+  surface('Plaza de las zonas de seguridad 3 y 4',(plazaRight-49)/2,0,plazaRight+49,46,0);
   surface('Vereda frontal adoquinada',0,21,59,4,0,'brick');
   surface('Plataforma del extremo 6–7',32,0,10,41,0,'brick');
   surface('Vereda junto a talleres',0,-30.1,88,2.2,-.96);
@@ -201,12 +218,6 @@ export function buildCampusExterior(parent,{width=56,depth=38,signColor='#1251cb
   surface('Descanso superior de la rampa frontal', rampTopX - 1.15, 23.825, 2.3, 3.25, 0, 'brick');
   box(entry, X(2.3), .69, .16, X(rampTopX - 1.15), .345, Z(25.45), M.blue, true);
 
-  // El seto continúa hasta ambos lados del paso peatonal a la puerta.
-  const entranceHalfGap = Math.min(22, 1.75 / sx);
-  const entryStartZ = frontZ / sz;
-  const entryEndZ = 19.15;
-  surface('Paso hacia la puerta principal', 0, (entryStartZ + entryEndZ) / 2,
-    entranceHalfGap * 2, entryEndZ - entryStartZ, 0, 'brick');
   // Zonas circulares a la izquierda del boceto: NO son árboles ni estanques.
   for(const z of [8,-8]){
     const g=group('Zona de seguridad circular',X(-39),.022,Z(z));
@@ -218,8 +229,33 @@ export function buildCampusExterior(parent,{width=56,depth=38,signColor='#1251cb
     const g=planter(-30.1,z,3.4,5.8,0);agave(-30.5,z-1);agave(-29.4,z+1);tree(-30,z,0);bench(-32.9,z,Math.PI/2);
     board(g,'SENATI\nEscuela de Tecnologías\nde la Información',1.6,3.2,X(-28.25),2,Z(z),'#147faa',-Math.PI/2);
   }
-  const blueWall=group('Panel de ingreso lateral y señalización');box(blueWall,.18,3.5,5,X(-28.3),1.75,Z(3),M.blue);
-  board(blueWall,'SENATI\nEscuela de Tecnologías\nde la Información\nCentro de formación',3.9,2.6,X(-28.41),2,Z(3),'#1647a4',-Math.PI/2);
+  if(entrance){
+    const {westX,recessStart,recessEnd,blueStart,doorX,doorZ,halfWidth}=entrance;
+    const atriumStart=X(-31.8);
+    const atriumDepth=doorX-atriumStart;
+    surface('Atrio de concreto de la entrada', (atriumStart+doorX)/(2*sx),(recessStart+recessEnd)/(2*sz),
+      atriumDepth/sx,(recessEnd-recessStart)/sz,0,'concrete');
+    const tilesLength=X(3.6);
+    surface('Losetas grises bajo el pórtico',(doorX-tilesLength/2)/sx,doorZ/sz,
+      tilesLength/sx,(2*halfWidth+.36)/sz,0,'tile');
+
+    const posters=group('Carteles de la entrada lateral');
+    board(posters,'SENATI\nTECNOLOGÍAS\nDE LA INFORMACIÓN',1.24,2.40,westX-.025,1.48,recessStart-Z(1.0),'#137ab7',-Math.PI/2);
+    board(posters,'SENATI\nPROGRAMAS MODULARES\nDE CAPACITACIÓN',1.15,2.36,westX+X(.90),1.48,recessStart+.024,'#20a0bd');
+
+    const threshold=group('Borde amarillo y rejilla frente al acceso');
+    box(threshold,.065,.016,Z(2.55),doorX-X(2.5),.016,doorZ,M.yellow);
+    const grilleX=westX-X(1.6);
+    box(threshold,.58,.018,2*halfWidth+.17,grilleX,.014,doorZ,M.stone);
+    for(let stripe=0;stripe<9;stripe++)box(threshold,.021,.008,2*halfWidth+.11,grilleX-.25+stripe*.062,.026,doorZ,M.black);
+
+    const plantX=(doorX-X(1.2))/sx;
+    const plantZ=(blueStart+(recessEnd-blueStart)*.57)/sz;
+    planter(plantX,plantZ,1.25,2.3);
+    tree(plantX,plantZ,0,true,false,2.68);
+    agave(plantX-.25,plantZ+.72);
+    bench((westX-X(.95))/sx,(blueStart+(recessEnd-blueStart)*.66)/sz,Math.PI/2);
+  }
   // Caseta técnica y cafetería observadas frente a la plaza.
   const cafe=group('Cafetería y caseta técnica',X(-52),0,Z(3));box(cafe,5,3.5,10,0,1.75,0,M.white,true);box(cafe,5.3,.24,10.4,0,3.6,0,M.blue);box(cafe,.04,2.2,5.8,2.51,1.6,0,M.glass);board(cafe,'SENATI · CAFETERÍA',7,1.05,2.55,3,0,'#174b96',Math.PI/2);
   const tech=group('Caseta con puertas grises y avisos',X(-28.7),0,Z(16.2));box(tech,4.3,2.8,3.1,0,1.4,0,M.white);box(tech,4.5,.16,3.3,0,2.9,0,M.white);for(const zz of [-.8,.8]){box(tech,.04,2.25,1.3,-2.17,1.16,zz,M.stone);board(tech,'⚠\nRIESGO ELÉCTRICO',.9,.55,-2.20,1.9,zz,'#9b7625',-Math.PI/2);}
@@ -242,9 +278,7 @@ export function buildCampusExterior(parent,{width=56,depth=38,signColor='#1251cb
   fence('Vallado móvil naranja',-40,-25,4,Math.PI/2);for(const x of [-41,-40,-39,-38])cone(x,-25);
   // Jardines que recorren ambos lados largos del edificio.
   planter(0,-20,53,3.5,0);
-  const frontPlanterWidth = 25 - entranceHalfGap;
-  const frontPlanterCenter = (25 + entranceHalfGap) / 2;
-  for (const side of [-1, 1]) planter(side * frontPlanterCenter, 19, frontPlanterWidth, 2.4, 0, true);
+  planter(0,19,50,2.4,0,true);
   for(const x of [-22,-12,0,12,23]){tree(x,-20,0,x===-22||x===12,x===0);if(x!==0)tree(x,19,0,x===12);}
   for(const x of [-19,-9,1,11,21])agave(x,-20,0);
   const fire=group('Gabinete rojo e hidrante',X(17),-1.15,Z(-22.15));box(fire,.7,1.45,.28,0,1.0,0,M.red,true);board(fire,'EXTINTOR\nINCENDIOS',.52,.7,0,1.25,.15,'#a72d26');for(const xx of [-.26,.26])box(fire,.05,.35,.06,xx,.18,0,M.red);

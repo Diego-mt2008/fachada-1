@@ -3,7 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
 import { createSceneModel } from './scene-models.js';
 import { buildPiramideSENATI } from './piramide-senati.js';
-import { isDefaultEntrancePerson } from './exterior-campus.js';
+import { isDefaultEntrancePerson, isOldFrontExitSign } from './exterior-campus.js';
 import {ev52DeskPositions,pyramidScale,DEFAULT_PYRAMID_WIDTH,DEFAULT_PYRAMID_DEPTH,DEFAULT_LEVEL_HEIGHT} from './ev52-layout.js';
 import { NavigationGrid, findExitInfo } from './navigation.js';
 
@@ -67,7 +67,7 @@ function applyClimate(mode){
  if(rainPoints)rainPoints.visible=rain;
 }
 
-let floorMesh=null, gridHelper=null, roofMesh=null;
+let floorMesh=null, gridHelper=null, roofMesh=null, pyramidEntry=null;
 
 function disposeTree(root){
  root.traverse?.(o=>{o.geometry?.dispose();if(Array.isArray(o.material))o.material.forEach(m=>m?.dispose());else o.material?.dispose();});
@@ -165,6 +165,7 @@ function buildExterior(){
 
 function buildRoomShell(objects=[]){
  clearGroup(roomGroup);
+ pyramidEntry=null;
  if(appearance.buildingPlan==='senati-pyramid'){
    const ground=new THREE.Mesh(new THREE.PlaneGeometry(roomWidth+100,roomDepth+80),mat(0xdfe5df,.96));
    ground.rotation.x=-Math.PI/2;ground.position.set(0,-1.40,0);ground.receiveShadow=true;roomGroup.add(ground);floorMesh=ground;
@@ -173,6 +174,7 @@ function buildRoomShell(objects=[]){
    const facade=buildPiramideSENATI(roomGroup,{width:roomWidth,depth:roomDepth,levelHeight:roomHeight,
        levels:Math.min(6,Math.max(3,Number(appearance.floorCount)||5)),mode:appearance.pyramidView||'exterior',roofVisible});
    roofMesh=facade.roof;
+   pyramidEntry=facade.entry;
    return;
  }
 
@@ -373,7 +375,7 @@ function buildNavigation(type){
  if(type==='electrical')obstacleObjects.push({catalog_key:'electrical-hazard',pos_x:hazard.x,pos_z:hazard.z,rot_y:0});
  navGrid=new NavigationGrid(roomWidth,roomDepth,obstacleObjects,{cellSize:.10,radius:.31});
  const doors=savedObjects.filter(o=>(o.catalog_key||o.catalogKey)==='door');
- const candidates=(doors.length?doors:[null]).map(door=>({door,info:findExitInfo(door?[door]:[],roomWidth,roomDepth)}));
+ const candidates=(doors.length?doors:[null]).map(door=>({door,info:findExitInfo(door?[door]:[],roomWidth,roomDepth,pyramidEntry)}));
  let best=null;
  for(const candidate of candidates){
   const paths=people.map(person=>{
@@ -432,14 +434,16 @@ async function loadScenario(id){
   $('save-results').disabled=false;roomWidth=Number(loadedScenario.width_m)||20;roomDepth=Number(loadedScenario.depth_m)||12;roomHeight=Number(loadedScenario.height_m)||3.35;
   savedObjects=loadedScenario.objects||[];
   try{appearance={...appearance,...JSON.parse(loadedScenario.appearance_json||'{}')};}catch{}
-  if(appearance.buildingPlan==='senati-pyramid')savedObjects=savedObjects.filter(object=>!isDefaultEntrancePerson(object,roomDepth));
+  if(appearance.buildingPlan==='senati-pyramid')savedObjects=savedObjects.filter(object=>
+    !isDefaultEntrancePerson(object,roomDepth)&&!isOldFrontExitSign(object,roomDepth));
   applyClimate(appearance.climate||'day');
   roofVisible=typeof appearance.roofVisible==='boolean'?appearance.roofVisible:appearance.buildingPlan==='senati-pyramid';
   gridVisible=typeof appearance.gridVisible==='boolean'?appearance.gridVisible:false;
   const shadowOn=typeof appearance.shadowsEnabled==='boolean'?appearance.shadowsEnabled:true;renderer.shadowMap.enabled=shadowOn;sun.castShadow=shadowOn;
   const realistic=typeof appearance.realisticLighting==='boolean'?appearance.realisticLighting:true;renderer.toneMapping=realistic?THREE.ACESFilmicToneMapping:THREE.LinearToneMapping;renderer.toneMappingExposure=realistic?1.16:1;
-  exitInfo=findExitInfo(savedObjects,roomWidth,roomDepth);
-  buildRoomShell(savedObjects);renderSavedObjects(savedObjects);fitCamera();resetSimulation(true);
+  buildRoomShell(savedObjects);
+  exitInfo=findExitInfo(savedObjects,roomWidth,roomDepth,pyramidEntry);
+  renderSavedObjects(savedObjects);fitCamera();resetSimulation(true);
   $('sim-scene-title').textContent=loadedScenario.name;
   $('show-roof').textContent=roofVisible?'Ocultar techo':'Mostrar techo';$('show-grid').textContent=gridVisible?'Ocultar cuadrícula':'Mostrar cuadrícula';
   $('count-total').textContent=people.length;refreshRuns();
@@ -460,11 +464,11 @@ function loadDemoScenario(){
   deskPositions.forEach(p=>savedObjects.push({catalog_key:'desk',pos_x:p.x,pos_y:0,pos_z:p.z,scale_x:1,scale_y:1,scale_z:1,config_json:'{}'}));
   for(const [i,p] of deskPositions.filter((_,i)=>i%2===0).slice(0,8).entries())
     savedObjects.push({catalog_key:i%2?'woman-senati':'man-senati',pos_x:p.x,pos_y:0,pos_z:p.z+.90,scale_x:1,scale_y:1,scale_z:1,config_json:'{}'});
-  savedObjects.push({catalog_key:'door',pos_x:0,pos_y:0,pos_z:roomDepth/2-2.2,scale_x:1,scale_y:1,scale_z:1,config_json:'{}'});
   loadedScenario={id:null,name:'Pirámide SENATI · Demostración local'};
-  exitInfo=findExitInfo(savedObjects,roomWidth,roomDepth);
   applyClimate('day');
-  buildRoomShell(savedObjects);renderSavedObjects(savedObjects);fitCamera();resetSimulation(true);
+  buildRoomShell(savedObjects);
+  exitInfo=findExitInfo(savedObjects,roomWidth,roomDepth,pyramidEntry);
+  renderSavedObjects(savedObjects);fitCamera();resetSimulation(true);
   $('sim-scene-title').textContent=loadedScenario.name;
   $('show-roof').textContent=roofVisible?'Ocultar techo':'Mostrar techo';
   $('show-grid').textContent=gridVisible?'Ocultar cuadrícula':'Mostrar cuadrícula';
@@ -552,7 +556,7 @@ function enterWalkMode(){
  walkFloorLevel=0;walkOnStairs=false;
  walkSaved={position:camera.position.clone(),target:orbit.target.clone()};
  orbit.enabled=false;walking=true;document.body.classList.add('sim-walk-mode');
- const door=exitInfo||findExitInfo(savedObjects,roomWidth,roomDepth);
+ const door=exitInfo||findExitInfo(savedObjects,roomWidth,roomDepth,pyramidEntry);
  const start=new THREE.Vector3(door.inside.x-door.normal.x*.8,WALK_EYE_HEIGHT,door.inside.z-door.normal.z*.8);
  camera.position.copy(start);camera.lookAt(start.x-door.normal.x*3,WALK_EYE_HEIGHT-.03,start.z-door.normal.z*3);
  stage.requestFullscreen?.().catch(()=>{});walkControls.lock();

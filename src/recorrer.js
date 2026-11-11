@@ -2,8 +2,8 @@ import * as THREE from 'three';
 import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
 import { createSceneModel } from './scene-models.js';
 import { buildPiramideSENATI } from './piramide-senati.js';
-import { isDefaultEntrancePerson } from './exterior-campus.js';
-import { insideFootprint, canCrossBuilding } from './exterior-navigation.js';
+import { isDefaultEntrancePerson, isOldFrontExitSign } from './exterior-campus.js';
+import { insideFootprint, canCrossBuilding, canOccupyPyramidInterior } from './exterior-navigation.js';
 import {EV52_ROOMS,ev52DeskPositions,DEFAULT_PYRAMID_WIDTH,DEFAULT_PYRAMID_DEPTH,DEFAULT_LEVEL_HEIGHT} from './ev52-layout.js';
 
 const $=id=>document.getElementById(id);
@@ -139,8 +139,7 @@ function makeGenericRoom(){
 }
 function setVisibility(){
   if(kind==='piramide'&&building?.setMode){
-    // Exterior se mantiene para orientación; las ventanas dejan ver los interiores.
-    building.setMode('transparente',true);
+    building.setMode('recorrido',true);
   }
 }
 function makeFloorOptions(){
@@ -150,8 +149,14 @@ function makeFloorOptions(){
 }
 function resetCamera(){
   velocity.set(0,0,0);stairRoute=null;seatedAt=null;closePC();
-  camera.position.set(0,1.68,frontZ+5.4);
-  camera.rotation.set(0,0,0,'YXZ');
+  if(kind==='piramide'){
+    const {x,z,yaw}=building.entry.approach;
+    camera.position.set(x,building.campus.heightAt(x,z)+1.68,z);
+    camera.rotation.set(0,yaw,0,'YXZ');
+  }else{
+    camera.position.set(0,1.68,frontZ+5.4);
+    camera.rotation.set(0,0,0,'YXZ');
+  }
   $('status').textContent='Acércate a la entrada y pulsa E para abrir la puerta.';
 }
 function setFloor(index){
@@ -176,8 +181,8 @@ function buildScene(scenario){
     totalFloors=kind==='piramide'?Math.min(6,Math.max(1,Number(app.floorCount)||6)):1;
   }
   if(kind==='piramide'){
-    items=items.filter(object=>!isDefaultEntrancePerson(object,D));
-    building=buildPiramideSENATI(sceneRoot,{width:W,depth:D,levelHeight:H,levels:totalFloors,mode:'transparente',roofVisible:true,
+    items=items.filter(object=>!isDefaultEntrancePerson(object,D)&&!isOldFrontExitSign(object,D));
+    building=buildPiramideSENATI(sceneRoot,{width:W,depth:D,levelHeight:H,levels:totalFloors,mode:'recorrido',roofVisible:true,
       facadeColor:app.facadeColor||'#afa59b',signColor:app.signColor||'#1251cb'});
     frontZ=building.entry.frontZ;backZ=building.walkBounds.back;sideLeft=building.walkBounds.left;sideRight=building.walkBounds.right;
   }else makeGenericRoom();
@@ -314,7 +319,8 @@ function canMove(x,z){
     const outside=!insideFootprint(x,z,footprint);
     if(!canCrossBuilding({x:camera.position.x,z:camera.position.z},{x,z},
       {footprint,entry:building.entry,doorOpen,floor:currentFloor,radius:r}))return false;
-    if(!outside&&(x<sideLeft+r||x>sideRight-r||z<backZ+r))return false;
+    if(!outside&&!canOccupyPyramidInterior(x,z,{walkBounds:building.walkBounds,entry:building.entry,
+      doorOpen,floor:currentFloor,radius:r}))return false;
     if(outside){
       if(!building.campus.canWalk({x:camera.position.x,z:camera.position.z},{x,z},r))return false;
     }

@@ -197,21 +197,21 @@ export class NavigationGrid {
   }
 }
 
-export function findExitInfo(objects,width,depth){
+export function findExitInfo(objects,width,depth,defaultEntry){
   const door=objects.find(o=>(o.catalog_key||o.catalogKey)==='door');
-  const x=door ? Number(door.pos_x??door.position?.x??0) : width/2;
-  const z=door ? Number(door.pos_z??door.position?.z??0) : 0;
+  const entry=door?null:defaultEntry;
+  const x=door ? Number(door.pos_x??door.position?.x??0) : (entry?.x??width/2);
+  const z=door ? Number(door.pos_z??door.position?.z??0) : (entry?.z??0);
   const sideX=Math.abs(Math.abs(x)-width/2);
   const sideZ=Math.abs(Math.abs(z)-depth/2);
   let normal,tangent,inside,outside;
-  if(!door||sideX<=sideZ){
+  if(entry ? entry.side==='left' : sideX<=sideZ){
     const sign=x>=0?1:-1;normal={x:sign,z:0};tangent={x:0,z:1};
   }else{
     const sign=z>=0?1:-1;normal={x:0,z:sign};tangent={x:1,z:0};
   }
-  const center={x:door?x:normal.x*width/2,z:door?z:normal.z*depth/2};
-  // Match the clear opening in the editor's 1.48 m wall opening and 1.28 m leaf.
-  const clearWidth=door?1.28:1.20;
+  const center={x,z};
+  const clearWidth=entry?2*entry.halfWidth:door?1.28:1.20;
   const agentRadius=.31;
   inside={x:center.x-normal.x*.48,z:center.z-normal.z*.48};
   outside={x:center.x+normal.x*1.35,z:center.z+normal.z*1.35};

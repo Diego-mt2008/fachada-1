@@ -3,8 +3,8 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { buildPiramideSENATI } from './piramide-senati.js';
-import { isDefaultEntrancePerson } from './exterior-campus.js';
-import { insideFootprint, canCrossBuilding } from './exterior-navigation.js';
+import { isDefaultEntrancePerson, isOldFrontExitSign } from './exterior-campus.js';
+import { insideFootprint, canCrossBuilding, canOccupyPyramidInterior } from './exterior-navigation.js';
 import {EV52_ROOMS,ev52DeskPositions,pyramidScale,DEFAULT_PYRAMID_WIDTH,DEFAULT_PYRAMID_DEPTH,DEFAULT_LEVEL_HEIGHT} from './ev52-layout.js';
 import thumbManSenati from './assets/library/student-senati-m.webp';
 import thumbWomanSenati from './assets/library/student-senati-f.webp';
@@ -453,8 +453,9 @@ function makeRoom(){
 function positionCamera(){
   camera.fov=50;camera.updateProjectionMatrix();
   if(appearance.buildingPlan==='senati-pyramid'){
-    camera.position.set(35,24,49);
-    controls.target.set(0,room.height*getFloors().length*.52,3.0);
+    const span=Math.max(room.width,room.depth),targetY=room.height*getFloors().length*.52;
+    camera.position.set(-span*.87,targetY+span*.34,span*.93);
+    controls.target.set(0,targetY,3.0);
     controls.minDistance=6; controls.maxDistance=140;controls.update();return;
   }
   const span=Math.max(room.width,room.depth);
@@ -1401,9 +1402,9 @@ $('pyramid-template').addEventListener('click',()=>{
   placed.forEach(o=>objectGroup.remove(o));placed=[];selectObject(null);currentScenarioId=null;
   room={width:DEFAULT_PYRAMID_WIDTH,depth:DEFAULT_PYRAMID_DEPTH,height:DEFAULT_LEVEL_HEIGHT};
   appearance={floorType:'concrete',floorColor:'#deddd8',wallColor:'#b0a69c',deskColor:'#1559a8',chairColor:'#202a38',
-    climate:'day',buildingPlan:'senati-pyramid',floorCount:6,pyramidView:'transparente',facadeColor:'#afa59b',signColor:'#1251cb',floors:Array.from({length:6},(_,i)=>({id:i+1,name:`Piso ${i+1}`,elevation:i*DEFAULT_LEVEL_HEIGHT,height:DEFAULT_LEVEL_HEIGHT,floorType:'concrete',floorColor:'#deddd8'}))};
-  activeFloorIndex=0;roofVisible=false;gridVisible=false;
-  $('opt-roof').checked=false;$('opt-grid').checked=false;
+    climate:'day',buildingPlan:'senati-pyramid',floorCount:6,pyramidView:'exterior',facadeColor:'#afa59b',signColor:'#1251cb',floors:Array.from({length:6},(_,i)=>({id:i+1,name:`Piso ${i+1}`,elevation:i*DEFAULT_LEVEL_HEIGHT,height:DEFAULT_LEVEL_HEIGHT,floorType:'concrete',floorColor:'#deddd8'}))};
+  activeFloorIndex=0;roofVisible=true;gridVisible=false;
+  $('opt-roof').checked=true;$('opt-grid').checked=false;
   $('auto-station').checked=false;$('auto-seat').checked=false;
   $('scenario-name').value='Dirección Nacional SENATI · Pirámide (maqueta)';
   $('room-width').value=room.width;$('room-depth').value=room.depth;$('room-height').value=room.height;
@@ -1411,8 +1412,6 @@ $('pyramid-template').addEventListener('click',()=>{
   $('construction-floor').value='0';syncAppearanceInputs();makeRoom();
   // Seis pisos interiores con salones equipados (20 estaciones por nivel).
   populatePyramidInterior({silent:true});
-  // La puerta de entrada ya está construida en la geometría de la fachada.
-  addObject('safety-exit',new THREE.Vector3(0,0,room.depth/2-1.5),{silent:true});
   selectObject(null);renderLibrary();renderObjectList();applyFloorVisibility();markDirty();
   $('scene-template-tag').textContent='Pirámide SENATI V10 · 56 × 38 m · 6 pisos';
   showToast('V10: edificio 56 × 38 m, salones separados, pasadizos, 2 escaleras y ascensor orientativo.');
@@ -1439,7 +1438,10 @@ function enterWalkMode(){
   walkVisibilitySnapshot=placed.map(o=>o.visible);
   placed.forEach(o=>o.visible=nearestFloorIndex(o.position.y)===0);
   if(appearance.buildingPlan==='senati-pyramid'){
-    camera.position.set(0,1.65,(pyramidBuilding?.entry?.frontZ??room.depth/2)+5.4);camera.rotation.set(0,0,0);
+    const {x,z,yaw}=pyramidBuilding.entry.approach;
+    camera.position.set(x,pyramidBuilding.campus.heightAt(x,z)+1.65,z);
+    camera.rotation.set(0,yaw,0);
+    pyramidBuilding.setMode('recorrido',true);
     $('walk-hud').querySelector('span').textContent='WASD · Shift correr · E puertas/ascensor · Escaleras conectan las 6 plantas · ESC salir';
   }else if(appearance.buildingPlan==='two-floor'&&getFloors().length>1){
     const stair=getStairSpec();
@@ -1465,6 +1467,7 @@ walkControls.addEventListener('unlock',()=>{
   document.body.classList.remove('walk-mode');
   $('walk-exit-button')?.classList.add('hidden');
   walkMode=false;controls.enabled=true;$('tool-walk').innerHTML='<span>♙</span> Recorrer';$('tool-walk').classList.remove('active');
+  pyramidBuilding?.setMode(appearance.pyramidView||'exterior',roofVisible);
   $('walk-hud').classList.add('hidden');$('walk-crosshair').classList.add('hidden');
   $('viewport-help').classList.remove('hidden');$('viewport-status').textContent='Modo construcción';
   if(savedOrbitView){camera.position.copy(savedOrbitView.position);controls.target.copy(savedOrbitView.target);controls.update();savedOrbitView=null;}
@@ -1595,7 +1598,7 @@ $('load-scene').addEventListener('click',async()=>{
   $('scenario-name').value=data.name;currentScenarioId=Number(data.id);
   makeRoom();$('scene-template-tag').textContent=appearance.buildingPlan==='senati-pyramid'?'Pirámide SENATI · cargada':'Escenario guardado';placed.forEach(o=>objectGroup.remove(o));placed=[];selectObject(null);
   data.objects.forEach(o=>{
-   if(appearance.buildingPlan==='senati-pyramid'&&isDefaultEntrancePerson(o,room.depth))return;
+   if(appearance.buildingPlan==='senati-pyramid'&&(isDefaultEntrancePerson(o,room.depth)||isOldFrontExitSign(o,room.depth)))return;
    let config={};try{config=JSON.parse(o.config_json||'{}')||{};}catch(e){config={};}
    const obj=addObject(o.catalog_key,new THREE.Vector3(Number(o.pos_x),Number(o.pos_y),Number(o.pos_z)),{
     id:o.object_uuid,label:o.label,rotationY:Number(o.rot_y),scaleX:Number(o.scale_x),scaleY:Number(o.scale_y),scaleZ:Number(o.scale_z),skipAccessories:true,
@@ -1722,8 +1725,9 @@ renderer.setAnimationLoop(()=>{
      const inside=insideFootprint(camera.position.x,camera.position.z,fp);
      const stair=pyramidBuilding?.stairs;
      const crossing=!canCrossBuilding(previousWalkPosition,camera.position,{footprint:fp,entry:pyramidBuilding.entry,doorOpen:walkDoorOpen,floor:walkFloorIndex,radius:.20});
-     const bounds=pyramidBuilding.walkBounds;
-     const wall=inside?(camera.position.x<bounds.left+.24||camera.position.x>bounds.right-.24||camera.position.z<bounds.back+.24):!campus.canWalk(previousWalkPosition,camera.position,.20);
+     const wall=inside
+       ?!canOccupyPyramidInterior(camera.position.x,camera.position.z,{walkBounds:pyramidBuilding.walkBounds,entry:pyramidBuilding.entry,doorOpen:walkDoorOpen,floor:walkFloorIndex,radius:.24})
+       :!campus.canWalk(previousWalkPosition,camera.position,.20);
      if(crossing||wall){camera.position.x=previousWalkPosition.x;camera.position.z=previousWalkPosition.z;walkSmooth.multiplyScalar(.35);}
      if(stair){
        let blockedByWall=(pyramidBuilding.floorWallBoxes?.[walkFloorIndex]||[]).some(w=>

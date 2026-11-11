@@ -1,6 +1,6 @@
 /**
  * Dirección Nacional SENATI – recreación exterior e interior ESQUEMÁTICO.
- * Basado únicamente en dos fotografías aportadas por el usuario (2018 y otra vista).
+ * La envolvente exterior sigue las fotos y los recorridos aportados por el usuario.
  * NO representa planos arquitectónicos ni estructuras certificadas.
  * Las medidas están elegidas para una maqueta de demostración.
  */
@@ -20,15 +20,335 @@ function beam(parent,a,b,r,material){
   mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),delta.normalize());
   mesh.castShadow=true;parent.add(mesh);return mesh;
 }
-function signTexture(signColor='#1251cb'){
-  const c=document.createElement('canvas');c.width=2800;c.height=350;
-  const ctx=c.getContext('2d');ctx.fillStyle=signColor;ctx.fillRect(0,0,c.width,c.height);
-  ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillStyle='white';
-  ctx.font='900 260px Arial, sans-serif';ctx.fillText('SENATI',1400,174);
-  ctx.font='500 43px Arial, sans-serif';ctx.fillText('DIRECCIÓN NACIONAL · MAQUETA CONCEPTUAL',1400,315);
-  const tex=new THREE.CanvasTexture(c);tex.colorSpace=THREE.SRGBColorSpace;
-  return tex;
+function sideVolume(parent, name, xMin, xMax, profile, material) {
+  const shape = new THREE.Shape();
+  profile.forEach(([z, y], i) => i ? shape.lineTo(-z, y) : shape.moveTo(-z, y));
+  shape.closePath();
+  const geometry = new THREE.ExtrudeGeometry(shape, {depth:xMax-xMin, bevelEnabled:false});
+  geometry.rotateY(Math.PI / 2);
+  geometry.translate(xMin, 0, 0);
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.name = name;
+  mesh.castShadow = mesh.receiveShadow = true;
+  parent.add(mesh);
+  return mesh;
 }
+
+function drawSenatiMark(ctx, x, y, size) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(size, size);
+  ctx.fillStyle = '#fff';
+  // Contorno de la marca visible en la fotografía de referencia del proyecto.
+  const outline = [[-.38,.193],[-.49,0],[-.234,-.428],[.255,-.428],[.345,-.255],
+    [-.166,-.255],[-.276,-.069],[-.172,.117],[.097,.117],[.117,.08],[.083,.041],
+    [-.131,.034],[-.186,-.069],[-.124,-.179],[.393,-.179],[.503,.021],[.262,.441],
+    [-.241,.441],[-.334,.276],[.186,.276],[.29,.076],[.179,-.103],[-.069,-.103],
+    [-.097,-.069],[-.076,-.028],[.138,-.028],[.207,.08],[.145,.193]];
+  ctx.beginPath();
+  outline.forEach(([px, py], i) => i ? ctx.lineTo(px, py) : ctx.moveTo(px, py));
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+function concreteGrain() {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#f0efec';
+  ctx.fillRect(0,0,128,128);
+  let seed = 812;
+  const next = () => {
+    seed = (Math.imul(seed,1664525)+1013904223)>>>0;
+    return seed/4294967296;
+  };
+  for (let grain=0;grain<2100;grain++) {
+    ctx.fillStyle = grain%3===0?'#ffffff60':'#60564c23';
+    ctx.fillRect(next()*128,next()*128,1+next()*2,1+next()*2);
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(3,3);
+  return texture;
+}
+
+function signPanel(parent, {width, height, x, y, z, rotation=0, color, lines=[]}) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 1600;
+  canvas.height = Math.min(1600, Math.max(140, Math.round(1600*height/width)));
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width, h = canvas.height;
+  if (color) {
+    ctx.fillStyle = color;
+    ctx.fillRect(0, 0, w, h);
+  }
+  ctx.textBaseline = 'middle';
+  if (lines.length) {
+    const brandSize = h * .135;
+    drawSenatiMark(ctx, w*.14, h*.16, brandSize);
+    ctx.fillStyle = 'white';
+    ctx.font = `800 ${brandSize}px Arial`;
+    ctx.textAlign = 'left';
+    ctx.fillText('SENATI', w*.23, h*.16, w*.68);
+    ctx.font = `600 ${h*.087}px Arial`;
+    lines.forEach((line,i) => ctx.fillText(line,w*.095,h*(.35+.109*i),w*.83));
+  } else {
+    drawSenatiMark(ctx, w*.25, h*.5, h*.70);
+    ctx.fillStyle = 'white';
+    ctx.font = `900 ${h*.92}px Arial`;
+    ctx.textAlign = 'center';
+    ctx.fillText('SENATI',w*.56,h*.51,w*.61);
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  const material = new THREE.MeshBasicMaterial({map:texture,transparent:!color,depthWrite:Boolean(color)});
+  const panel = new THREE.Mesh(new THREE.PlaneGeometry(width,height),material);
+  panel.position.set(x,y,z);
+  panel.rotation.y = rotation;
+  parent.add(panel);
+  return panel;
+}
+
+function buildPyramidExterior({shell,envelope,structure,roof,width,depth,levelHeight,levels,front,back,walkBounds,facadeColor,signColor}) {
+  const X = value => value * width / 56;
+  const Z = value => value * depth / 38;
+  const height = levelHeight * levels;
+  const facadeWidth = width * (27.8 / 34);
+  const centerX = X(1.15);
+  const mainLeft = centerX - facadeWidth / 2;
+  const mainRight = centerX + facadeWidth / 2;
+  const concrete = standard(facadeColor,.91);
+  const spandrel = standard(new THREE.Color(facadeColor).lerp(new THREE.Color('#d5d0c7'),.30),.87);
+  concrete.map = spandrel.map = concreteGrain();
+  const shadow = standard('#242c2e',.94);
+  const trim = standard('#a8aba9',.56,.25);
+  const aluminum = standard('#d4d9da',.40,.38);
+  const white = standard('#e5e7e7',.74);
+  const blue = standard(signColor,.65);
+  const darkBlue = standard(new THREE.Color(signColor).multiplyScalar(.64),.70);
+  const windowTones = ['#2d434d','#455860','#5b727b','#27333a'].map(color=>standard(color,.29,.13));
+  const entryGlass = new THREE.MeshPhysicalMaterial({color:'#90aeb9',roughness:.18,metalness:.04,transparent:true,opacity:.49,depthWrite:false,side:THREE.DoubleSide});
+  const frost = new THREE.MeshStandardMaterial({color:'#dce3e6',roughness:.57,transparent:true,opacity:.79});
+  const obstacles = [];
+
+  // Los ventanales de ambos lados largos se apoyan en franjas de concreto.
+  // La envolvente retrocede en altura y los apoyos siguen esa inclinación.
+  const outerFace = (side,y) => (side>0?front:back) + side*Z(.14+1.15*(1-y/height));
+  box(envelope,facadeWidth,.48,depth-2.4,centerX,-.15,0,spandrel);
+  for (const side of [1,-1]) {
+    const wallSide = new THREE.Group();
+    wallSide.name = side>0?'Fachada larga del jardín frontal':'Fachada larga del pasaje de talleres';
+    shell.add(wallSide);
+    const bays = 15;
+    const bayWidth = facadeWidth / bays;
+    for (let floor = 0; floor < levels; floor++) {
+      const base = floor * levelHeight;
+      const lowerBandY = base + levelHeight*.18;
+      const windowY = base + levelHeight*.575;
+      const windowHeight = levelHeight*.39;
+      const upperBandY = base + levelHeight*.90;
+      const windowZ = outerFace(side,windowY) - side*.12;
+      box(wallSide,facadeWidth,levelHeight*.36,.38,centerX,lowerBandY,outerFace(side,lowerBandY),spandrel);
+      box(wallSide,facadeWidth,levelHeight*.44+.04,.18,centerX,base+levelHeight*.58,windowZ-side*.10,shadow,false);
+      box(wallSide,facadeWidth,levelHeight*.20,.35,centerX,upperBandY,outerFace(side,upperBandY),concrete);
+      for (let bay=0;bay<bays;bay++) {
+        const x = mainLeft + bayWidth*(bay+.5);
+        const glazing = windowTones[(floor*3+bay*7+(side>0?0:2))%windowTones.length];
+        box(wallSide,bayWidth-.085,windowHeight-.075,.055,x,windowY,windowZ+side*.035,glazing,false);
+        box(wallSide,.045,windowHeight,.11,x+bayWidth/2-.025,windowY,windowZ+side*.08,trim,false);
+        box(wallSide,bayWidth-.04,.055,.11,x,windowY+windowHeight*.26,windowZ+side*.08,trim,false);
+        if ((bay+floor)%3===0) box(wallSide,.038,windowHeight*.74,.085,x,windowY-windowHeight*.11,windowZ+side*.075,trim,false);
+      }
+      for (const y of [windowY-windowHeight/2,windowY+windowHeight/2]) {
+        box(wallSide,facadeWidth,.075,.23,centerX,y,windowZ+side*.06,trim,false);
+      }
+    }
+    for (let rib=0;rib<=5;rib++) {
+      const x = mainLeft + facadeWidth * rib / 5;
+      const bottomZ = outerFace(side,0) + side*.36;
+      const topZ = outerFace(side,height) + side*.24;
+      const bottom = [bottomZ-.48,bottomZ+.48];
+      const top = [topZ-.25,topZ+.25];
+      sideVolume(structure,'Contrafuerte de concreto inclinado',x-X(.38),x+X(.38),
+        [[bottom[0],0],[bottom[1],0],[top[1],height+.10],[top[0],height+.10]],concrete);
+    }
+    // Condensadoras visibles en el recorrido, colocadas en los tramos de ventanas.
+    for (const [bay,floor] of [[1,1],[4,2],[8,1],[12,3]]) {
+      if (floor>=levels) continue;
+      const x = mainLeft+bayWidth*(bay+.33);
+      const y = levelHeight*(floor+.55);
+      const z = outerFace(side,y)+side*.29;
+      box(wallSide,.88,.49,.35,x,y,z,white);
+      const grille = new THREE.Mesh(new THREE.CylinderGeometry(.17,.17,.024,14),shadow);
+      grille.rotation.x = Math.PI/2;
+      grille.position.set(x-.13,y,z+side*.184);
+      wallSide.add(grille);
+      for (let line=0;line<4;line++) box(wallSide,.19,.018,.026,x+.22,y-.12+.08*line,z+side*.184,trim,false);
+    }
+    const roofZ = outerFace(side,height)+side*.13;
+    const signWidth = facadeWidth*.97;
+    const signHeight = Math.min(4.25,levelHeight*1.1);
+    const signY = height+signHeight/2+.17;
+    box(shell,signWidth,signHeight,.28,centerX,signY,roofZ,blue);
+    signPanel(shell,{width:signWidth-.16,height:signHeight-.14,x:centerX,y:signY,z:roofZ+side*.151,
+      rotation:side>0?0:Math.PI,color:signColor});
+    for (let post=0;post<10;post++) {
+      const x = centerX+(post/9-.5)*signWidth*.94;
+      box(shell,.09,.27,.13,x,height+.14,roofZ,shadow);
+      beam(shell,[x,height+.08,roofZ-side*1.2],[x,signY+.18,roofZ-side*.15],.028,shadow);
+    }
+    obstacles.push({x0:mainLeft,x1:mainRight,z0:Math.min(side>0?front:back,outerFace(side,0)),z1:Math.max(side>0?front:back,outerFace(side,0))});
+  }
+
+  // El extremo de la plaza tiene dos masas de concreto y un cuerpo central retirado.
+  const entryX = walkBounds.left;
+  const westX = entryX-X(4.6);
+  const recessStart = Z(-3.25);
+  const recessEnd = Z(10.6);
+  const westSpan = recessEnd-recessStart;
+  const westCenter = (recessStart+recessEnd)/2;
+  const doorZ = Z(-.75);
+  const halfWidth = Math.min(1.32,westSpan*.113);
+  const doorHeight = Math.min(2.51,levelHeight*.83);
+  const canopyY = levelHeight*1.29;
+  const glassTop = canopyY-.29;
+  const glassWidth = halfWidth*2+Math.min(.85,westSpan*.067);
+  const glassStart = doorZ-glassWidth/2;
+  const glassEnd = doorZ+glassWidth/2;
+  const wallBack = outerFace(-1,0),wallFront = outerFace(1,0);
+  const rearWing = [[wallBack,0],[recessStart,0],[recessStart,height+.21],[outerFace(-1,height),height+.21]];
+  const frontWing = [[recessEnd,0],[wallFront,0],[outerFace(1,height),height+.78],[recessEnd,height+.78]];
+  sideVolume(envelope,'Muro lateral de concreto junto a la entrada',westX,entryX+.10,rearWing,concrete);
+  sideVolume(envelope,'Volumen inclinado a la derecha de la entrada',westX,entryX+.10,frontWing,concrete);
+  obstacles.push({x0:westX,x1:entryX,z0:wallBack,z1:recessStart},{x0:westX,x1:entryX,z0:recessEnd,z1:wallFront});
+
+  const fascia = new THREE.Group();
+  fascia.name = 'Entrada principal · plaza lateral';
+  fascia.position.set(entryX,0,doorZ);
+  fascia.rotation.y = -Math.PI/2;
+  shell.add(fascia);
+  // Las dos hojas abren hacia la plaza. Las divisiones de aluminio continúan en el paño superior.
+  const portal = new THREE.Group();
+  portal.name = 'Puerta principal de vidrio de dos hojas';
+  fascia.add(portal);
+  const leaves = [];
+  for (const side of [-1,1]) {
+    const leaf = new THREE.Group();
+    leaf.name = side<0?'Hoja izquierda':'Hoja derecha';
+    leaf.position.x = side*halfWidth;
+    portal.add(leaf);
+    leaves.push(leaf);
+    const center = -side*(halfWidth-.027)/2;
+    const width = halfWidth-.035;
+    box(leaf,width-.075,doorHeight-.11,.043,center,doorHeight/2,0,entryGlass,false);
+    for (const edge of [-1,1]) box(leaf,.047,doorHeight,.071,center+edge*width/2,doorHeight/2,0,aluminum,false);
+    for (const y of [.035,doorHeight-.025]) box(leaf,width,.054,.071,center,y,0,aluminum,false);
+    box(leaf,width-.087,.29,.015,center,1.08,.027,frost,false);
+    const handleX = -side*(halfWidth-.16);
+    beam(leaf,[handleX,.93,.075],[handleX,1.30,.075],.018,aluminum);
+    for (const y of [.96,1.27]) box(leaf,.028,.025,.063,handleX,y,.05,aluminum,false);
+  }
+  function setDoorOpen(open) {
+    leaves[0].rotation.y = open ? -Math.PI*.49 : 0;
+    leaves[1].rotation.y = open ? Math.PI*.49 : 0;
+  }
+  const margin = glassWidth/2-halfWidth;
+  for (const side of [-1,1]) {
+    box(portal,margin-.035,doorHeight,.049,side*(halfWidth+margin/2),doorHeight/2,0,entryGlass,false);
+    box(portal,.063,glassTop,.094,side*glassWidth/2,glassTop/2,0,aluminum,false);
+    box(portal,.061,doorHeight,.097,side*(halfWidth+.04),doorHeight/2,0,aluminum,false);
+  }
+  const transomHeight = glassTop-doorHeight;
+  box(portal,glassWidth,transomHeight,.06,0,doorHeight+transomHeight/2,0,entryGlass,false);
+  for (let col=1;col<4;col++) box(portal,.052,transomHeight,.10,-glassWidth/2+glassWidth*col/4,doorHeight+transomHeight/2,.01,aluminum,false);
+  for (let row=0;row<=3;row++) box(portal,glassWidth,.055,.10,0,doorHeight+transomHeight*row/3,.01,aluminum,false);
+  const entrySignHeight = Math.min(.53,transomHeight*.29);
+  box(portal,2*halfWidth,entrySignHeight,.075,0,doorHeight+entrySignHeight/2+.09,.058,darkBlue);
+  signPanel(portal,{width:2*halfWidth-.045,height:entrySignHeight-.03,x:0,y:doorHeight+entrySignHeight/2+.09,z:.099,color:signColor});
+
+  const blueStart = glassEnd+.045;
+  const blueSpan = recessEnd-blueStart;
+  const slitCenter = blueStart+blueSpan*.53;
+  const slitWidth = Math.min(.75,blueSpan*.13);
+  const groundWallHeight = canopyY-.22;
+  const slitBottom = groundWallHeight*.56;
+  const ground = new THREE.Group();
+  ground.name = 'Muro azul y directorio de escuelas';
+  shell.add(ground);
+  box(ground,.23,groundWallHeight,slitCenter-slitWidth/2-blueStart,entryX-.12,groundWallHeight/2,(blueStart+slitCenter-slitWidth/2)/2,blue);
+  box(ground,.23,groundWallHeight,recessEnd-slitCenter-slitWidth/2,entryX-.12,groundWallHeight/2,(recessEnd+slitCenter+slitWidth/2)/2,blue);
+  box(ground,.23,slitBottom,slitWidth,entryX-.12,slitBottom/2,slitCenter,blue);
+  box(ground,.09,groundWallHeight-slitBottom,slitWidth,entryX+.02,(slitBottom+groundWallHeight)/2,slitCenter,shadow);
+  box(ground,.28,groundWallHeight,glassStart-recessStart,entryX-.04,groundWallHeight/2,(glassStart+recessStart)/2,concrete);
+  const directoryWidth = (slitCenter-slitWidth/2-blueStart)*.91;
+  signPanel(ground,{width:directoryWidth,height:groundWallHeight*.69,x:entryX-.242,
+    y:groundWallHeight*.60,z:blueStart+directoryWidth*.54,rotation:-Math.PI/2,
+    lines:['› Escuela de Tecnologías','  de la Información','› Escuela de Confecciones','› Centro de Tecnologías']});
+
+  const recessDepth = entryX-westX;
+  const balcony = new THREE.Group();
+  balcony.name = 'Vuelos, barandas y paños azules del lateral';
+  envelope.add(balcony);
+  const ledgeY = [canopyY,levelHeight*3.52,levelHeight*4.48];
+  for (const y of ledgeY) {
+    if (y>=height-.55) continue;
+    box(balcony,recessDepth+.75,.63,westSpan,westX+(recessDepth-.75)/2,y,westCenter,concrete);
+    box(balcony,recessDepth+.68,.10,westSpan,westX+(recessDepth-.68)/2,y-.36,westCenter,white);
+    box(balcony,.31,.55,westSpan,westX-.57,y+.49,westCenter,concrete);
+    const railingX = westX-.58;
+    for (const railY of [y+.84,y+1.05]) beam(balcony,[railingX,railY,recessStart+.12],[railingX,railY,recessEnd-.12],.024,aluminum);
+    for (let post=0;post<=8;post++) {
+      const z = recessStart+.12+(westSpan-.24)*post/8;
+      beam(balcony,[railingX,y+.75,z],[railingX,y+1.08,z],.027,aluminum);
+    }
+  }
+  const upperPanelBottom = canopyY+.35;
+  const upperPanelTop = Math.min(height-.55,levelHeight*3.52-.33);
+  if (upperPanelTop>upperPanelBottom) {
+    const middleGap = Math.min(.70,westSpan*.064);
+    const panelWidth = (westSpan-middleGap)/2;
+    for (const side of [-1,1]) box(balcony,.30,upperPanelTop-upperPanelBottom,panelWidth,entryX-.22,
+      (upperPanelTop+upperPanelBottom)/2,westCenter+side*(middleGap+panelWidth)/2,blue);
+    box(balcony,.09,upperPanelTop-upperPanelBottom,middleGap,entryX+.03,(upperPanelTop+upperPanelBottom)/2,westCenter,shadow);
+  }
+  box(balcony,.24,height-upperPanelTop,westSpan,entryX+.06,(height+upperPanelTop)/2,westCenter,concrete);
+  for (const y of [levelHeight*4.02,levelHeight*4.94]) {
+    if (y>=height-.65) continue;
+    const count = 10;
+    const paneWidth = westSpan/count;
+    for (let i=0;i<count;i++) {
+      const z = recessStart+(i+.5)*paneWidth;
+      box(balcony,.085,.82,paneWidth-.032,entryX-.25,y,z,windowTones[i%windowTones.length],false);
+      box(balcony,.12,.86,.035,entryX-.29,y,z+paneWidth/2,aluminum,false);
+    }
+  }
+  const cantileverHeight = Math.min(2.8,levelHeight*.77);
+  const cantileverY = height-cantileverHeight/2+.12;
+  box(envelope,recessDepth+1.64,cantileverHeight,westSpan-.11,westX+(recessDepth-1.64)/2,cantileverY,westCenter,white);
+  for (let seam=1;seam<13;seam++) box(envelope,.018,cantileverHeight-.07,.022,westX-1.65,cantileverY,recessStart+westSpan*seam/13,trim,false);
+
+  // El extremo opuesto conserva el remate azul vertical y las ventanas estrechas.
+  box(envelope,.43,height,front-back,mainRight+.11,height/2,(front+back)/2,concrete);
+  box(envelope,1.21,height,2.65,mainRight+.67,height/2,front-1.20,darkBlue);
+  for (let floor=1;floor<levels;floor++) {
+    const y = levelHeight*(floor+.39);
+    box(shell,.096,.83,2.2,mainRight+1.3,y,front-1.20,windowTones[floor%4],false);
+    box(shell,.28,.23,2.64,mainRight+1.26,y+.59,front-1.20,white);
+  }
+  const roofLeft=westX-.13, roofRight=mainRight+1.35;
+  box(roof,roofRight-roofLeft,.45,front-back+.35,(roofLeft+roofRight)/2,height+.15,(front+back)/2,spandrel);
+
+  return {
+    entry:{side:'left',x:entryX,z:doorZ,halfWidth,frontZ:front,approach:{x:westX-X(6.6),z:doorZ,yaw:-Math.PI/2}},
+    entranceLayout:{westX,recessStart,recessEnd,blueStart,doorX:entryX,doorZ,halfWidth},
+    rightBoundary: mainRight+1.3,
+    obstacles,
+    setDoorOpen,
+  };
+}
+
 function useMode({shell,envelope,roof,interior,mode='exterior',roofVisible=false}){
   for(const group of [shell,envelope]) group.traverse(o=>{if(o.isMesh&&o.userData.originalMaterial){o.material=mode==='transparente'?o.userData.ghostMaterial:o.userData.originalMaterial;}});
   shell.visible=mode!=='estructura';
@@ -57,68 +377,14 @@ export function buildPiramideSENATI(parent,{width=56,depth=38,levelHeight=3.8,le
   const roof=new THREE.Group();roof.name='Azotea';root.add(roof);
   const environment=new THREE.Group();environment.name='Acceso y entorno referencial';root.add(environment);
 
-  const concrete=standard(facadeColor,.88),concreteLight=standard(new THREE.Color(facadeColor).lerp(new THREE.Color(0xffffff),.32),.82);
-  const white=standard(0xecf0f1,.68),band=standard(0xf6f7f6,.65);
-  const blue=standard(signColor,.48),deepBlue=standard(new THREE.Color(signColor).multiplyScalar(.64),.52);
-  const dark=standard(0x35424c,.58,.2),metal=standard(0x576775,.38,.45);
+  const blue=standard(signColor,.48);
   const glass=new THREE.MeshPhysicalMaterial({color:0x84bdd4,roughness:.16,metalness:.08,transparent:true,opacity:.63,depthWrite:false,side:THREE.DoubleSide});
-  const ground=standard(0xa9b2a6,.97),paving=standard(0xd4d1c8,.9),grass=standard(0x698764,.98);
   const H=levelHeight*levels;
-  const baseWidth=width,baseDepth=depth;
-  const front=baseDepth/2-2.2;
-  const centerX=1.15*scaleX;
-  const facadeWidth=width*(27.8/34);
-  const mainLeft=centerX-facadeWidth/2;
-  const mainRight=centerX+facadeWidth/2;
-  const towerX=mainLeft-3.3;
-
-  // Terreno y volumen: paredes posteriores y laterales (sin asumir muros internos).
-  box(envelope,facadeWidth,.48,baseDepth-2.4,centerX,-.15,0,concreteLight);
-  // Acceso lateral al núcleo de la Escalera 1 (hueco en planta baja).
-  box(envelope,.35,H-levelHeight,baseDepth-2.8,mainLeft,levelHeight+(H-levelHeight)/2,-.2,concrete);
-  box(envelope,.35,levelHeight,7.0,mainLeft,levelHeight/2,-5.15,concrete);
-  box(envelope,.35,levelHeight,5.2,mainLeft,levelHeight/2,5.20,concrete);
-  box(envelope,.35,levelHeight-2.40,2.3,mainLeft,2.40+(levelHeight-2.40)/2,.9,concrete);
-  box(envelope,.35,H,baseDepth-2.8,mainRight,H/2,-.2,concrete);
-  box(envelope,facadeWidth,H,.28,centerX,H/2,-baseDepth/2+1.3,concreteLight);
-  // Frente estriado por niveles: ventanales, parteluces y franjas horizontales.
-  const bays=13;
-  for(let floor=0;floor<levels;floor++){
-    const base=floor*levelHeight;
-    const glassY=base+1.78;
-    if(floor===0){
-      const doorLeft=-1.23, doorRight=1.23;
-      box(shell,doorLeft-mainLeft,.70,.38,(mainLeft+doorLeft)/2,base+.50,front,concreteLight);
-      box(shell,mainRight-doorRight,.70,.38,(doorRight+mainRight)/2,base+.50,front,concreteLight);
-    }else box(shell,facadeWidth,.70,.38,centerX,base+.50,front,concreteLight);
-    box(shell,facadeWidth,.30,.39,centerX,base+levelHeight-.25,front,band);
-    for(let col=0;col<bays;col++){
-      const bayW=facadeWidth/bays;
-      const x=mainLeft+(col+.5)*bayW;
-      if(floor>0 || Math.abs(x)>2.1) box(shell,bayW-.11,1.87,.095,x,glassY,front+.19,glass,false);
-      box(shell,.055,1.97,.17,x+bayW/2-.045,glassY,front+.27,dark,false);
-      box(shell,bayW-.12,.035,.14,x,glassY+.26,front+.27,dark,false);
-      box(shell,bayW-.12,.025,.14,x,glassY-.35,front+.27,dark,false);
-    }
-    box(shell,facadeWidth,.24,.43,centerX,base+levelHeight-.66,front+.14,white);
-  }
-  // Volumen lateral macizo, huecos verticales y recessos azules, como en las fotos.
-  box(envelope,5.3,H+.55,baseDepth-2.5,towerX,H/2+.20,-.22,concrete);
-  box(shell,2.05,H*.35,.16,towerX-.15,H*.40,front+.17,deepBlue);
-  for(let f=0;f<levels;f++){
-    box(shell,.84,.39,.18,towerX+.15,(f+.5)*levelHeight,front+.24,dark,false);
-  }
-  box(envelope,4.75,1.55,2.7,towerX-1.2,H-.47,front+.65,white);
-  // Contrafuertes inclinados de la fachada: elementos visibles en fotos, no cálculo estructural.
-  for(const x of [mainLeft+2.0,mainLeft+facadeWidth*.30,mainLeft+facadeWidth*.62,mainRight-2.0]){
-    beam(structure,[x-.65,1.0,front+1.65],[x+.40,H-.2,front+.22],.25,concreteLight);
-    box(structure,.86,.42,1.35,x-.65,.22,front+1.65,concrete);
-  }
-  // Remate azul estrecho del frente: evita un bloque ciego sobredimensionado.
-  box(envelope,1.08,H,2.65,mainRight+.76,H/2,front-1.05,blue);
-  for(let f=1;f<levels;f++){
-    box(shell,.095,.78,2.23,mainRight+1.37,(f+.35)*levelHeight,front-1.05,glass,false);
-  }
+  const floorBounds={left:X(-13.02*56/34),right:X(14.48*56/34),back:Z(-8.70*38/20),front:Z(8.70*38/20)};
+  const front=Math.max(depth/2-2.2,floorBounds.front+.20);
+  const back=Math.min(-depth/2+1.16,floorBounds.back-.20);
+  const exterior=buildPyramidExterior({shell,envelope,structure,roof,width,depth,levelHeight,levels,
+    front,back,walkBounds:floorBounds,facadeColor,signColor});
 
   // V10: un mismo replanteo para los seis pisos; pasillos despejados, núcleos sin
   // tabiques que los crucen, y superficies de paso en dimensiones proporcionales.
@@ -130,7 +396,6 @@ export function buildPiramideSENATI(parent,{width=56,depth=38,levelHeight=3.8,le
   const elevatorGroup=new THREE.Group();elevatorGroup.name='Ascensor didáctico · cabina y puertas';interior.add(elevatorGroup);
   const classroomDoors=[],floorWallBoxes=Array.from({length:levels},()=>[]);
   const wallThickness=.12,wallHeight=levelHeight-.17;
-  const floorBounds={left:X(-13.02*56/34),right:X(14.48*56/34),back:Z(-8.70*38/20),front:Z(8.70*38/20)};
   const holes=[...stairsLayout.map(st=>({x0:st.xMin,x1:st.xMax,z0:st.zTop,z1:st.zBottom})),
     {x0:liftLayout.xMin,x1:liftLayout.xMax,z0:liftLayout.zTop,z1:liftLayout.zBottom}];
   // Cortar las losas, sin cubrir accidentalmente los huecos del elevador y escaleras.
@@ -245,38 +510,8 @@ export function buildPiramideSENATI(parent,{width=56,depth=38,levelHeight=3.8,le
   const elevator=lift;
   const corridorBounds={left:X(-8.70*56/34),right:X(8.45*56/34),back:Z(-3.15*38/20),front:Z(2.30*38/20)};
 
-  // Azotea y cartel visibles con techo activado en vista exterior.
-  box(roof,facadeWidth+6.8,.45,baseDepth-2.1,centerX-1.7,H+.15,-.1,concreteLight);
-  const signY=H+2.02;
-  const billboardWidth=Math.min(31,facadeWidth*.78);
-  box(shell,billboardWidth,3.65,.30,centerX,signY,front+.20,blue);
-  const sign=new THREE.Mesh(new THREE.PlaneGeometry(billboardWidth-.25,3.42),new THREE.MeshBasicMaterial({map:signTexture(signColor),side:THREE.DoubleSide}));
-  sign.position.set(centerX,signY,front+.39);shell.add(sign);
-  for(const x of [mainLeft+1,mainLeft+7,mainRight-6,mainRight-1])box(shell,.14,1.2,.17,x,H+.65,front+.17,metal);
-
-  // Entorno reconstruido según el video y la planta 1–7.
-  const campus=buildCampusExterior(environment,{width,depth,signColor,frontZ:front});
-  // Portal principal con dos hojas: la tecla E acciona este acceso en el recorrido.
-  const doorRoot=new THREE.Group();doorRoot.name='Entrada principal interactiva';environment.add(doorRoot);
-  const entryZ=front+.37,entryFrame=standard(0x4b626c,.38,.46);
-  box(doorRoot,.08,2.58,.12,-1.24,1.29,entryZ,entryFrame);
-  box(doorRoot,.08,2.58,.12,1.24,1.29,entryZ,entryFrame);
-  box(doorRoot,2.55,.10,.12,0,2.55,entryZ,entryFrame);
-  const leafL=new THREE.Group();leafL.position.set(-1.20,0,entryZ);doorRoot.add(leafL);
-  const leafR=new THREE.Group();leafR.position.set(1.20,0,entryZ);doorRoot.add(leafR);
-  box(leafL,1.15,2.37,.045,.575,1.22,0,glass,false);
-  box(leafR,1.15,2.37,.045,-.575,1.22,0,glass,false);
-  for(const [g,sign] of [[leafL,1],[leafR,-1]]){
-    box(g,.042,2.37,.055,sign*.575,1.22,0,metal,false);
-    box(g,.04,.035,.09,sign*.95,1.10,.09,metal,false);
-  }
-  function setDoorOpen(open){leafL.rotation.y=open?-Math.PI*.48:0;leafR.rotation.y=open?Math.PI*.48:0;}
-  setDoorOpen(false);
-  for(let i=0;i<6;i++){
-    const x=-3.2+i*2.7;
-    if(Math.abs(x)>2.75) box(environment,2.57,3.1,.12,x,1.55,front+.29,glass,false);
-    box(environment,.06,3.12,.16,x+1.28,1.55,front+.37,dark,false);
-  }
+  const campus=buildCampusExterior(environment,{width,depth,signColor,
+    entrance:exterior.entranceLayout,buildingObstacles:exterior.obstacles});
   // Materiales translúcidos propios de la envolvente para vista 'transparente'.
   // Se preserva el material base y así el modo exterior no pierde calidad.
   for(const layer of [shell,envelope]) layer.traverse(o=>{
@@ -289,9 +524,9 @@ export function buildPiramideSENATI(parent,{width=56,depth=38,levelHeight=3.8,le
   });
   useMode({shell,envelope,roof,interior,mode,roofVisible});
   return {root,roof,shell,envelope,interior,structure,environment,campus,
-    footprint:{left:towerX-2.65,right:mainRight+1.3,back:-baseDepth/2+1.16,front},classroomDoors,setClassroomDoorOpen,
+    footprint:{left:floorBounds.left,right:exterior.rightBoundary,back,front},classroomDoors,setClassroomDoorOpen,
     classroomBounds:corridorBounds,scaleX,scaleZ,width,depth,
-    setDoorOpen,entry:{x:0,z:entryZ,frontZ:front},stairs:staircases[1],staircases,elevator,
+    setDoorOpen:exterior.setDoorOpen,entry:exterior.entry,stairs:staircases[1],staircases,elevator,
     firstFloorWalls:floorWallBoxes[0],floorWallBoxes,firstFloorIsEV52:true,
     walkBounds:{left:floorBounds.left,right:floorBounds.right,back:floorBounds.back},
     setMode(nextMode,nextRoof){useMode({shell,envelope,roof,interior,mode:nextMode,roofVisible:nextRoof});}};
